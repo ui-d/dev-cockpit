@@ -22,7 +22,8 @@ It follows your system light/dark theme:
   Keyboard: **Space** start/pause · **R** reset · **S** skip phase.
 - **Calendar** pill shows the ongoing or next meeting; click it for the full agenda for
   **today and tomorrow**, split into two sections.
-- **Weather** pill shows the temperature; click it for feels-like, high/low, and wind.
+- **Weather** pill shows the current temperature alongside the day's high (↑) and low (↓);
+  click it for feels-like, high/low, and wind.
 - **Slack** pill shows your combined unread count (DMs + @mentions); click it for the
   DM/mention breakdown and a link to open Slack. The count also shows on the toolbar icon
   when the timer is idle, and you can opt into a desktop alert on new activity.
@@ -31,7 +32,8 @@ It follows your system light/dark theme:
   as Calendar with a read-only `gmail.metadata` scope (label counts only — never message
   contents), and you can opt into a desktop alert when new mail arrives.
 - **Board** fills the screen: lists and cards with drag & drop, add / rename / delete
-  lists, add / edit / delete cards. Saved locally on this device.
+  lists, add / edit / delete cards. Pressing **Enter** when adding a card saves it and
+  keeps the input focused so you can add the next one immediately. Saved locally on this device.
 - **Boards** — keep several boards (e.g. Personal, Work, Lifestyle). A rail of small board
   icons sits on the right edge, one under another. Click an icon to switch boards; click
   the active icon again to rename it, change its emoji, or delete it. Use **+** to add one.

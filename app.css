@@ -41,6 +41,13 @@
   }
 }
 
+/* High-contrast dark: same family as the base dark, pushed for a stronger contrast ratio */
+:root[data-theme="contrast"] {
+  --bg: #0c0e11; --surface: #15181d; --surface-2: #20242b; --elevated: #282d35;
+  --line: #3c424b; --line-soft: #2c3138;
+  --text: #fbfaf7; --text-muted: #c2c8d0; --text-faint: #868d97;
+}
+
 /* ---- extra base themes ---- */
 :root[data-theme="sepia"] {
   --bg: #efe6d2; --surface: #fbf4e2; --surface-2: #e9dec5; --elevated: #fffbf0;
@@ -100,6 +107,17 @@ body {
   z-index: 30;
 }
 .bar-spacer { flex: 1; }
+
+/* settings icon pinned to the bottom-left corner of the viewport */
+.ti-settings {
+  position: fixed;
+  left: 10px; bottom: 10px;
+  z-index: 40;
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
+  box-shadow: 0 4px 14px -10px rgba(0,0,0,.6);
+}
+.ti-settings:hover { background: var(--surface-2); }
 
 /* timer cluster */
 .timer { display: flex; align-items: center; gap: 10px; }

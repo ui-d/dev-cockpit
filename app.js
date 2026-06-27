@@ -742,17 +742,25 @@ function startAddCard(columnId, list, addBtn) {
   const input = document.createElement("textarea");
   input.className = "add-card-input"; input.rows = 2; input.placeholder = "What needs doing?";
   list.after(input); input.focus();
-  const finish = (commit) => {
+  let done = false;
+  const finish = (commit, reopen) => {
+    if (done) return;
+    done = true;
     const text = input.value.trim(); input.remove(); addBtn.style.display = "";
     if (commit && text) {
       const task = { id: newId(), title: text, notes: "", createdAt: Date.now() };
       board.tasks[task.id] = task;
       board.columns.find((c) => c.id === columnId).taskIds.push(task.id);
       saveBoard(); renderBoard();
+      if (reopen) {
+        const newList = el.board.querySelector(`.column-list[data-column-id="${columnId}"]`);
+        const newAddBtn = newList && newList.parentElement.querySelector(".add-card");
+        if (newList && newAddBtn) startAddCard(columnId, newList, newAddBtn);
+      }
     }
   };
   input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); finish(true); }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); finish(true, true); }
     else if (e.key === "Escape") finish(false);
   });
   input.addEventListener("blur", () => finish(true));
@@ -860,10 +868,10 @@ function renderWeather(data, locName) {
   const c = data.current;
   const [icon, label] = wmo(c.weather_code);
   const temp = Math.round(c.temperature_2m);
-  el.wxIcon.textContent = icon;
-  el.wxPillText.textContent = `${temp}°`;
   const hi = Math.round(data.daily.temperature_2m_max[0]);
   const lo = Math.round(data.daily.temperature_2m_min[0]);
+  el.wxIcon.textContent = icon;
+  el.wxPillText.textContent = `${temp}° ↑${hi}° ↓${lo}°`;
   el.wxDetail.innerHTML = `
     <div class="wx-now"><span style="font-size:30px">${icon}</span>
       <div><div class="wx-temp">${temp}°C</div><div class="wx-cond">${label}</div></div></div>
