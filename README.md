@@ -4,6 +4,17 @@ A board-first Chrome extension built to be your daily work surface. A slim top b
 carries a minimal Pomodoro timer, today's Google Calendar, and current weather — the
 rest of the screen is a Trello-style board.
 
+![DevCockpit board with the top bar — timer, calendar, weather, Slack and Gmail pills](screenshots/board.png)
+
+The same top bar, up close — Pomodoro timer on the left; calendar, weather, Slack and
+Gmail on the right:
+
+![DevCockpit top bar close-up](screenshots/topbar.png)
+
+It follows your system light/dark theme:
+
+![DevCockpit in dark mode](screenshots/board-dark.png)
+
 - **Timer** lives in the top bar: just the number and three icons — start/pause, reset,
   settings. Focus ↔ break only (no long break). A chime plays at every phase transition
   (the pitch nudges down going into a break, up going back to focus). Remaining time
