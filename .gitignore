@@ -1,0 +1,9 @@
+# OS
+.DS_Store
+
+# Local tooling
+.claude/
+.playwright-mcp/
+
+# Build/screenshot scratch
+*.png.tmp

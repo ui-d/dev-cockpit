@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAve/OAZgfJcbtBN3ujqXY+Cfxv7UQe2+w4hqhiIA66eBpig/Bb0XxtM1OygQDtRI/iP9YcED9c0rfkGqoMYDDZa69VZbzbT/0S3KmviTswiiNGkuvYO3XiIgrWxVTVXE++LP/EYcQSohjDerKvyUvrdS59Tv6idIrjg8sTgV7AR3SpDp1YNgQtZzvy4AuigZWBATb5boplMSBhRUbckcsYvtNDFUr1hPrU4elZ8tSFfG2u3gQzqZvkquJMhSdaOClyp+xFdx13cxSKrDHQOQSvvgJISnctwfV7VY+aU9HZ12oNWdny0iAyfHXW/WJ8qNbdqnP7cxBj4524wh6Dj4S6QIDAQAB",
+  "name": "DevCockpit — Board, Timer, Day",
+  "version": "2.2.0",
+  "description": "Your daily work boards: multiple Trello-style boards with a minimal Pomodoro timer, weather, Google Calendar, and your Slack + Gmail unread counts in one top bar.",
+  "permissions": ["storage", "alarms", "offscreen", "notifications", "identity", "cookies", "downloads"],
+  "host_permissions": [
+    "https://api.open-meteo.com/*",
+    "https://geocoding-api.open-meteo.com/*",
+    "https://www.googleapis.com/*",
+    "https://*.slack.com/*"
+  ],
+  "oauth2": {
+    "client_id": "535711176927-6fg2v2tvc0afm3pkt8h54lt4ttsc27fm.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/gmail.metadata"
+    ]
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Open DevCockpit",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
