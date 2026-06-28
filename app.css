@@ -65,6 +65,13 @@
   --bg: #fdf6e3; --surface: #fffbf0; --surface-2: #eee8d5; --elevated: #ffffff;
   --line: #e3dcc4; --line-soft: #ede6cf; --text: #073642; --text-muted: #586e75; --text-faint: #93a1a1;
 }
+/* Zed's default "One Dark" — neutrals from Zed's UI surfaces; accent is the
+   iconic One Dark blue/green (overridden if the user picks a data-accent). */
+:root[data-theme="zed"] {
+  --bg: #282c34; --surface: #2f343e; --surface-2: #3b414d; --elevated: #3b414d;
+  --line: #464b57; --line-soft: #363c46; --text: #c8ccd4; --text-muted: #9da5b4; --text-faint: #6b7280;
+  --ember: #61afef; --ember-deep: #4d9fe6; --sage: #98c379; --sage-deep: #7faf5f;
+}
 
 /* ---- accent color themes (override the focus accent; break stays sage) ---- */
 :root[data-accent="ocean"]    { --ember: #4f93d6; --ember-deep: #3b79bd; }
