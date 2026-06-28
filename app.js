@@ -683,6 +683,35 @@ function renderBoard() {
   el.board.appendChild(add);
 }
 
+// Reorder whole lists by dragging their header grip. Columns sit side by side,
+// so we position by horizontal midpoint (clientX), mirroring the card/rail logic.
+el.board.addEventListener("dragover", (e) => {
+  const dragging = el.board.querySelector(".column-dragging");
+  if (!dragging) return;                         // ignore card drags
+  e.preventDefault();
+  const after = getColumnDragAfterElement(e.clientX);
+  if (after == null) el.board.insertBefore(dragging, el.board.querySelector(".add-column-btn"));
+  else el.board.insertBefore(dragging, after);
+});
+
+function getColumnDragAfterElement(x) {
+  const cols = [...el.board.querySelectorAll(".column[data-column-id]:not(.column-dragging)")];
+  let closest = { offset: -Infinity, element: null };
+  for (const c of cols) {
+    const box = c.getBoundingClientRect();
+    const offset = x - box.left - box.width / 2;
+    if (offset < 0 && offset > closest.offset) closest = { offset, element: c };
+  }
+  return closest.element;
+}
+
+function commitColumnOrderFromDom() {
+  const ids = [...el.board.querySelectorAll(".column[data-column-id]")].map((n) => n.dataset.columnId);
+  const reordered = ids.map((id) => board.columns.find((c) => c.id === id)).filter(Boolean);
+  if (reordered.length === board.columns.length) board.columns = reordered;
+  saveBoard();
+}
+
 function renderColumn(col) {
   const wrap = document.createElement("div");
   wrap.className = "column";
@@ -690,6 +719,19 @@ function renderColumn(col) {
 
   const head = document.createElement("div");
   head.className = "column-head";
+
+  // drag handle — reorders the whole list among its siblings
+  const grip = document.createElement("span");
+  grip.className = "column-grip"; grip.textContent = "⠿";
+  grip.title = "Drag to reorder list"; grip.setAttribute("aria-label", "Drag to reorder list");
+  grip.draggable = true;
+  grip.addEventListener("dragstart", (e) => {
+    isDragging = true; wrap.classList.add("column-dragging");
+    e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", col.id);
+    e.dataTransfer.setDragImage(wrap, 20, 20);
+  });
+  grip.addEventListener("dragend", () => { wrap.classList.remove("column-dragging"); isDragging = false; commitColumnOrderFromDom(); });
+
   const title = document.createElement("input");
   title.className = "column-title";
   title.value = col.title;
@@ -717,7 +759,7 @@ function renderColumn(col) {
   move.setAttribute("aria-label", "Move list to another board");
   move.addEventListener("click", (e) => { e.stopPropagation(); openMoveListMenu(col.id, move); });
 
-  head.append(title, count, move, del);
+  head.append(grip, title, count, move, del);
 
   const list = document.createElement("ul");
   list.className = "column-list";

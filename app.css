@@ -378,6 +378,7 @@ body.running #startPauseBtn .i-pause { display: block; }
   max-height: 100%;
 }
 .column.drag-over { border-color: var(--accent); }
+.column.column-dragging { opacity: .45; }
 .column.add-column-btn {
   flex: 0 0 220px; align-items: center; justify-content: center;
   background: transparent; border: 1px dashed var(--line);
@@ -386,6 +387,13 @@ body.running #startPauseBtn .i-pause { display: block; }
 .column.add-column-btn:hover { color: var(--text); border-color: var(--accent); background: var(--surface); }
 
 .column-head { display: flex; align-items: center; gap: 8px; padding: 13px 13px 9px; }
+.column-grip {
+  cursor: grab; color: var(--text-faint); font-size: 13px; line-height: 1;
+  padding: 2px 1px; margin: 0 -2px 0 -3px; border: 0; background: transparent;
+  user-select: none; -webkit-user-select: none; flex: 0 0 auto;
+}
+.column-grip:hover { color: var(--text-muted); }
+.column-grip:active { cursor: grabbing; }
 .column-title {
   flex: 1; min-width: 0; font-weight: 600; font-size: 13.5px;
   background: transparent; border: 1px solid transparent; border-radius: 7px;
