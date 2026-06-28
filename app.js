@@ -199,6 +199,7 @@ el.reset.addEventListener("click", () => send("reset"));
 el.settingsBtn.addEventListener("click", openSettings);
 
 document.addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return; // let shortcuts like Ctrl/Cmd+S through
   if (e.target.matches("input, textarea, select")) return;
   if (document.querySelector("dialog[open]")) return;
   if (e.code === "Space") { e.preventDefault(); if (timer) send(timer.isRunning ? "pause" : "start"); }
@@ -209,6 +210,47 @@ document.addEventListener("keydown", (e) => {
     if (hovered && hovered.dataset.taskId) deleteCardById(hovered.dataset.taskId);
   }
 });
+
+// Ctrl/Cmd+S — save whatever is currently editable, anywhere in the app.
+// Capture phase + preventDefault so the browser's "Save page" dialog never opens.
+document.addEventListener("keydown", (e) => {
+  if (!((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s")) return;
+  e.preventDefault();
+  e.stopPropagation();
+
+  // 1) An open dialog (settings / task / board): submit its Save button.
+  const dialog = document.querySelector("dialog[open]");
+  if (dialog) {
+    const form = dialog.querySelector("form");
+    const saveBtn = dialog.querySelector('button[value="save"]');
+    if (form && saveBtn) { form.requestSubmit(saveBtn); flashSaved(); return; }
+  }
+
+  // 2) An inline editor (add-card input, column/board title): commit on blur.
+  const active = document.activeElement;
+  if (active && active.matches('input, textarea, [contenteditable="true"]')) {
+    active.blur();
+    flashSaved();
+    return;
+  }
+
+  // 3) Nothing open — board edits already persist immediately. Just confirm.
+  flashSaved();
+}, true);
+
+// Tiny transient "Saved ✓" confirmation toast.
+let savedToastEl = null, savedToastTimer = null;
+function flashSaved() {
+  if (!savedToastEl) {
+    savedToastEl = document.createElement("div");
+    savedToastEl.className = "save-toast";
+    savedToastEl.textContent = "Saved ✓";
+    document.body.appendChild(savedToastEl);
+  }
+  savedToastEl.classList.add("show");
+  if (savedToastTimer) clearTimeout(savedToastTimer);
+  savedToastTimer = setTimeout(() => savedToastEl.classList.remove("show"), 1100);
+}
 
 // ----------------------------- settings -----------------------------
 
@@ -239,8 +281,27 @@ function openSettings() {
   renderAnthropicSettings();
   el.autoBackupFile.checked = settings.autoBackupFile !== false;
   renderBackupHistory();
+  setSettingsTab("timer");
   el.settingsDialog.showModal();
 }
+
+// Switch which settings tab panel is visible.
+function setSettingsTab(name) {
+  document.querySelectorAll("#settingsTabs .dlg-tab").forEach((tab) => {
+    const on = tab.dataset.tab === name;
+    tab.classList.toggle("is-active", on);
+    tab.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  document.querySelectorAll("#settingsForm .tab-panel").forEach((panel) => {
+    const on = panel.dataset.tab === name;
+    panel.classList.toggle("is-active", on);
+    panel.hidden = !on;
+  });
+}
+document.getElementById("settingsTabs").addEventListener("click", (e) => {
+  const tab = e.target.closest(".dlg-tab");
+  if (tab) setSettingsTab(tab.dataset.tab);
+});
 
 function readSettingsForm() {
   const clampInt = (v, lo, hi, d) => { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
@@ -1015,11 +1076,148 @@ function renderGlobalList() {
   globalList.taskIds.forEach((tid) => { const t = globalList.tasks[tid]; if (t) list.appendChild(renderCard(t)); });
   wireDropTarget(list);
 
-  const addBtn = document.createElement("button");
-  addBtn.className = "add-card"; addBtn.textContent = "+ Add a card";
-  addBtn.addEventListener("click", () => startAddCard(globalList, globalList.tasks, saveGlobalList, list, addBtn));
+  // Lower third: darker widget tray split into four slots that widgets can fill.
+  // Slot 1 is the work-clock counting down to 5pm; the rest are open placeholders.
+  const widgets = document.createElement("div");
+  widgets.className = "global-widgets";
+  for (let i = 0; i < 4; i++) {
+    const slot = document.createElement("div");
+    slot.className = "widget-slot";
+    slot.dataset.slot = String(i + 1);
+    if (i === 0) {
+      slot.classList.add("widget-filled");
+      slot.appendChild(buildWorkClockWidget());
+    } else {
+      slot.classList.add("widget-empty");
+      slot.innerHTML = `<span class="widget-empty-mark" aria-hidden="true">+</span><span class="widget-empty-label">Widget ${i + 1}</span>`;
+    }
+    widgets.appendChild(slot);
+  }
 
-  host.append(head, list, addBtn);
+  host.append(head, list, widgets);
+}
+
+// ----------------------------- work clock widget -----------------------------
+
+const WORK_START_HOUR = 9; // 9 AM — start of the workday
+const WORK_END_HOUR = 17;   // 5 PM — end of the workday the analog clock counts down to
+const WORK_BAND_R = 45.5;   // radius of the working-hours gradient band on the dial
+let workClockTimer = null;
+
+// Convert a clock-face angle (0° = 12 o'clock, increasing clockwise) to an SVG point.
+function clockPoint(cx, cy, r, angleDeg) {
+  const rad = (angleDeg * Math.PI) / 180;
+  return { x: cx + r * Math.sin(rad), y: cy - r * Math.cos(rad) };
+}
+
+// Working-hours window expressed as clock-face angles + clockwise sweep between them.
+function workAngles() {
+  const aStart = (WORK_START_HOUR % 12) * 30;
+  const aEnd = (WORK_END_HOUR % 12) * 30;
+  return { aStart, aEnd, sweep: ((aEnd - aStart) + 360) % 360 };
+}
+
+// Build an SVG arc path string sweeping `sweepDeg` clockwise from `fromDeg` at radius r.
+function clockArcPath(fromDeg, sweepDeg, r) {
+  const p1 = clockPoint(50, 50, r, fromDeg);
+  const p2 = clockPoint(50, 50, r, fromDeg + sweepDeg);
+  const largeArc = sweepDeg > 180 ? 1 : 0;
+  return `M ${p1.x.toFixed(2)} ${p1.y.toFixed(2)} A ${r} ${r} 0 ${largeArc} 1 ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+}
+
+function buildWorkClockWidget() {
+  const wrap = document.createElement("div");
+  wrap.className = "work-clock";
+
+  const ticks = Array.from({ length: 12 }, (_, i) => {
+    const a = i * 30;
+    const outer = clockPoint(50, 50, 44, a);
+    const inner = clockPoint(50, 50, i % 3 === 0 ? 38 : 40.5, a);
+    const cls = i === WORK_END_HOUR % 12 ? "wc-tick wc-tick-end" : "wc-tick";
+    const w = i % 3 === 0 ? 1.6 : 1;
+    return `<line class="${cls}" x1="${outer.x.toFixed(2)}" y1="${outer.y.toFixed(2)}" x2="${inner.x.toFixed(2)}" y2="${inner.y.toFixed(2)}" stroke-width="${w}" stroke-linecap="round" />`;
+  }).join("");
+
+  // 5 PM marker dot sits just inside the rim at the 5 o'clock position.
+  const endDot = clockPoint(50, 50, 44, (WORK_END_HOUR % 12) * 30);
+
+  // Static working-hours band (9 AM → 5 PM) painted with a sage→amber→ember gradient.
+  const { aStart, sweep } = workAngles();
+  const bandPath = clockArcPath(aStart, sweep, WORK_BAND_R);
+  const g1 = clockPoint(50, 50, WORK_BAND_R, aStart);
+  const g2 = clockPoint(50, 50, WORK_BAND_R, aStart + sweep);
+
+  wrap.innerHTML = `
+    <svg class="wc-face" viewBox="0 0 100 100" role="img" aria-label="Working hours — time until 5 PM">
+      <defs>
+        <linearGradient id="wcGrad" gradientUnits="userSpaceOnUse"
+          x1="${g1.x.toFixed(2)}" y1="${g1.y.toFixed(2)}" x2="${g2.x.toFixed(2)}" y2="${g2.y.toFixed(2)}">
+          <stop class="wc-g0" offset="0" />
+          <stop class="wc-g1" offset="0.5" />
+          <stop class="wc-g2" offset="1" />
+        </linearGradient>
+      </defs>
+      <circle cx="50" cy="50" r="47" class="wc-rim" />
+      <path class="wc-band" d="${bandPath}" fill="none" stroke="url(#wcGrad)" stroke-linecap="round" />
+      <path id="wcElapsed" class="wc-elapsed" fill="none" stroke-linecap="round" />
+      ${ticks}
+      <circle cx="${endDot.x.toFixed(2)}" cy="${endDot.y.toFixed(2)}" r="2.4" class="wc-end-dot" />
+      <line id="wcHour" class="wc-hand wc-hour" x1="50" y1="50" x2="50" y2="27" stroke-linecap="round" />
+      <line id="wcMin" class="wc-hand wc-min" x1="50" y1="50" x2="50" y2="18" stroke-linecap="round" />
+      <line id="wcSec" class="wc-hand wc-sec" x1="50" y1="54" x2="50" y2="14" stroke-linecap="round" />
+      <circle cx="50" cy="50" r="2.2" class="wc-pivot" />
+    </svg>
+    <div class="wc-readout"><span id="wcCountdown" class="wc-countdown">—</span><span class="wc-sub">to 5 PM</span></div>
+  `;
+
+  // Keep a single ticking timer alive; it re-targets whatever clock DOM currently exists.
+  if (!workClockTimer) workClockTimer = setInterval(updateWorkClock, 1000);
+  // Update on the next frame so the freshly-built nodes are in the DOM.
+  requestAnimationFrame(updateWorkClock);
+  return wrap;
+}
+
+function updateWorkClock() {
+  const elapsed = document.getElementById("wcElapsed");
+  if (!elapsed) return; // widget not mounted right now
+  const now = new Date();
+  const h = now.getHours(), m = now.getMinutes(), s = now.getSeconds();
+
+  const setHand = (id, angle) => {
+    const eln = document.getElementById(id);
+    if (eln) eln.setAttribute("transform", `rotate(${angle.toFixed(2)} 50 50)`);
+  };
+  setHand("wcHour", ((h % 12) + m / 60) * 30);
+  setHand("wcMin", (m + s / 60) * 6);
+  setHand("wcSec", s * 6);
+
+  const start = new Date(now); start.setHours(WORK_START_HOUR, 0, 0, 0);
+  const end = new Date(now); end.setHours(WORK_END_HOUR, 0, 0, 0);
+  const diffMin = (end - now) / 60000;       // minutes left until 5 PM
+  const elapsedMin = (now - start) / 60000;  // minutes since 9 AM
+  const totalMin = (end - start) / 60000;    // workday length
+
+  const { aStart, sweep } = workAngles();
+  // Grey out the portion of the working-hours band that has already elapsed.
+  const spentMin = Math.max(0, Math.min(elapsedMin, totalMin));
+  elapsed.setAttribute("d", spentMin <= 0 ? "" : clockArcPath(aStart, spentMin / 2, WORK_BAND_R));
+
+  const readout = elapsed.parentElement.parentElement.querySelector(".wc-readout");
+  const sub = readout && readout.querySelector(".wc-sub");
+  const countdown = document.getElementById("wcCountdown");
+
+  if (diffMin <= 0 || diffMin > 12 * 60) {
+    // Outside the workday: keep the analog face, hide the countdown readout entirely.
+    if (diffMin <= 0) elapsed.setAttribute("d", clockArcPath(aStart, sweep, WORK_BAND_R)); // fully spent
+    if (readout) readout.hidden = true;
+    return;
+  }
+  if (readout) readout.hidden = false;
+
+  const hrs = Math.floor(diffMin / 60);
+  const mins = Math.floor(diffMin % 60);
+  if (countdown) countdown.textContent = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+  if (sub) sub.textContent = "to 5 PM";
 }
 
 // ----------------------------- task editor -----------------------------

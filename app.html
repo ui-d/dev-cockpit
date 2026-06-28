@@ -81,6 +81,14 @@
           <button class="icon-btn" value="cancel" aria-label="Close">✕</button>
         </div>
 
+        <nav class="dlg-tabs" id="settingsTabs" role="tablist" aria-label="Settings sections">
+          <button type="button" class="dlg-tab is-active" role="tab" data-tab="timer" aria-selected="true">Timer</button>
+          <button type="button" class="dlg-tab" role="tab" data-tab="integrations" aria-selected="false">Integrations</button>
+          <button type="button" class="dlg-tab" role="tab" data-tab="appearance" aria-selected="false">Appearance</button>
+          <button type="button" class="dlg-tab" role="tab" data-tab="backup" aria-selected="false">Backup</button>
+        </nav>
+
+        <div class="tab-panel is-active" data-tab="timer" role="tabpanel">
         <fieldset class="group">
           <legend>Timer (minutes)</legend>
           <label>Focus <input type="number" id="focusMin" min="1" max="180" /></label>
@@ -102,7 +110,9 @@
           <label class="switch-row"><span>Desktop notification</span><input type="checkbox" id="notify" /></label>
           <button type="button" class="btn btn-soft" id="previewSoundBtn">Preview</button>
         </fieldset>
+        </div>
 
+        <div class="tab-panel" data-tab="integrations" role="tabpanel" hidden>
         <fieldset class="group">
           <legend>Weather</legend>
           <label class="grow">City
@@ -173,7 +183,9 @@
           </div>
           <p class="hint" id="anthropicHint">Powers the Slack panel's “Wyjaśnij (PL)” and “Odpowiedz (EN)” buttons. The key is stored only on this device.</p>
         </fieldset>
+        </div>
 
+        <div class="tab-panel" data-tab="appearance" role="tabpanel" hidden>
         <fieldset class="group">
           <legend>Appearance</legend>
           <label>Theme
@@ -203,7 +215,9 @@
             </select>
           </label>
         </fieldset>
+        </div>
 
+        <div class="tab-panel" data-tab="backup" role="tabpanel" hidden>
         <fieldset class="group">
           <legend>Backup &amp; restore</legend>
           <div class="backup-actions">
@@ -215,6 +229,7 @@
           <p class="hint" id="backupHint">Boards and settings only — Slack &amp; Calendar credentials are never included. Snapshots are also saved automatically as you work, so you can roll back.</p>
           <div class="backup-history" id="backupHistory"></div>
         </fieldset>
+        </div>
 
         <div class="dlg-actions">
           <button type="button" class="btn btn-ghost" id="resetSettingsBtn">Reset defaults</button>
