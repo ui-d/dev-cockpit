@@ -6,7 +6,8 @@
 // Also polls Slack's unread count (DMs + @mentions) in the background so the
 // top-bar pill, toolbar badge, and desktop alerts work without a tab open.
 
-import { fetchCounts, combineUnread, conversationKey } from "./slack.js";
+import { fetchCounts, combineUnread, conversationKey, fetchUnreadMessages } from "./slack.js";
+import { explainMessagePL, draftReplyEN, DEFAULT_MODEL } from "./anthropic.js";
 import { BACKUP_DATA_KEYS, MAX_SNAPSHOTS, buildBackup, fingerprint, backupFileName } from "./backup.js";
 
 const ALARM_COMPLETE = "ff-complete";
@@ -194,6 +195,43 @@ async function slackDisconnect() {
     } catch (e) {}
   }
   await refreshBadge();
+}
+
+// On-demand: full unread message bodies for the detail panel. Runs only when the
+// user opens / refreshes the Slack drawer, so the heavier calls stay bounded.
+async function getSlackUnread() {
+  const store = await chrome.storage.local.get(["slack", "slackUsers", "slackConvos"]);
+  const slack = store.slack;
+  if (!slackConfigured(slack)) return { ok: false, error: "not_configured" };
+  try {
+    const payload = await fetchCounts(slack);
+    const { conversations, caches } = await fetchUnreadMessages(slack, payload, {
+      maxConversations: 5,
+      perConversation: 5,
+      caches: { users: store.slackUsers || {}, convos: store.slackConvos || {} },
+    });
+    await chrome.storage.local.set({ slackUsers: caches.users, slackConvos: caches.convos });
+    return { ok: true, conversations };
+  } catch (e) {
+    const error = (e && e.message) || "slack_error";
+    const auth = error === "not_authed" || error === "invalid_auth" || error === "token_revoked";
+    return { ok: false, error: auth ? "auth" : error };
+  }
+}
+
+// Anthropic-backed helpers for the Slack drawer (explain in Polish / draft in English).
+// The API key is read here so it never leaves the worker into page context.
+async function runAiTask(kind, payload) {
+  const { anthropic } = await chrome.storage.local.get("anthropic");
+  const cfg = { apiKey: anthropic && anthropic.apiKey, model: (anthropic && anthropic.model) || DEFAULT_MODEL };
+  if (!cfg.apiKey) return { ok: false, error: "no_key" };
+  if (!payload || !payload.text) return { ok: false, error: "no_message" };
+  try {
+    const text = kind === "explain" ? await explainMessagePL(cfg, payload) : await draftReplyEN(cfg, payload);
+    return { ok: true, text };
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || "ai_error" };
+  }
 }
 
 // ----------------------------- backup -----------------------------
@@ -422,7 +460,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case "refreshBadge": await refreshBadge(); break;
       case "slackConnect": await scheduleSlack(); result = await pollSlack(); break;
       case "slackRefresh": result = await pollSlack(); break;
+      case "slackUnread": result = await getSlackUnread(); break;
       case "slackDisconnect": await slackDisconnect(); break;
+      case "aiExplain": result = await runAiTask("explain", msg.payload); break;
+      case "aiDraft": result = await runAiTask("draft", msg.payload); break;
       case "snapshotNow": await takeSnapshot({ auto: false }); break;
     }
     sendResponse(result || { ok: true });

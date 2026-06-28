@@ -9,7 +9,8 @@
     "https://api.open-meteo.com/*",
     "https://geocoding-api.open-meteo.com/*",
     "https://www.googleapis.com/*",
-    "https://*.slack.com/*"
+    "https://*.slack.com/*",
+    "https://api.anthropic.com/*"
   ],
   "oauth2": {
     "client_id": "535711176927-6fg2v2tvc0afm3pkt8h54lt4ttsc27fm.apps.googleusercontent.com",

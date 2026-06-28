@@ -11,7 +11,7 @@ export const BACKUP_VERSION = 1;
 //   - caches that regenerate on their own: weatherCache, calCache, slackCounts
 //   - secrets that must never leave the device: slack tokens, calConnected
 //   - internal flags: trelloSeeded
-export const BACKUP_DATA_KEYS = ["boards", "activeBoardId", "settings"];
+export const BACKUP_DATA_KEYS = ["boards", "activeBoardId", "settings", "globalList"];
 
 // How many rolling in-app snapshots we keep.
 export const MAX_SNAPSHOTS = 10;
@@ -59,10 +59,14 @@ export function readBackup(obj) {
       throw new Error("This backup's board data looks corrupted.");
     }
   }
+  const gl = data.globalList;
+  const globalListOk = gl && typeof gl === "object" &&
+    Array.isArray(gl.taskIds) && gl.tasks && typeof gl.tasks === "object";
   return {
     boards: data.boards,
     activeBoardId: typeof data.activeBoardId === "string" ? data.activeBoardId : data.boards[0].id,
     settings: data.settings && typeof data.settings === "object" ? data.settings : null,
+    globalList: globalListOk ? gl : null,
   };
 }
 

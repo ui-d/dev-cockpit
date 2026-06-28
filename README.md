@@ -33,10 +33,16 @@ It follows your system light/dark theme:
   contents), and you can opt into a desktop alert when new mail arrives.
 - **Board** fills the screen: lists and cards with drag & drop, add / rename / delete
   lists, add / edit / delete cards. Pressing **Enter** when adding a card saves it and
-  keeps the input focused so you can add the next one immediately. Saved locally on this device.
+  keeps the input focused so you can add the next one immediately. Hover a card and press
+  **C** to delete it. The **⤴** button on a list header moves that whole list (and its
+  cards) to another board. Saved locally on this device.
 - **Boards** — keep several boards (e.g. Personal, Work, Lifestyle). A rail of small board
   icons sits on the right edge, one under another. Click an icon to switch boards; click
   the active icon again to rename it, change its emoji, or delete it. Use **+** to add one.
+- **Pinned list** — a single list docked on the right edge that stays visible on **every**
+  board. Drag cards into it from any board (or back out), so anything you want to keep at
+  hand follows you as you switch boards. The Slack, Gmail, Calendar and Weather panels float
+  over it when opened.
 
 ## Install (unpacked)
 

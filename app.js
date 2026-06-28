@@ -31,13 +31,10 @@ const el = {
   reset: $("#resetBtn"),
   settingsBtn: $("#settingsBtn"),
   board: $("#board"),
+  globalList: $("#globalList"),
   // calendar
   calPill: $("#calPill"),
   calPillText: $("#calPillText"),
-  calPopover: $("#calPopover"),
-  calList: $("#calList"),
-  calPopoverDate: $("#calPopoverDate"),
-  calRefresh: $("#calRefresh"),
   // weather
   wxPill: $("#wxPill"),
   wxPillText: $("#wxPillText"),
@@ -47,13 +44,16 @@ const el = {
   // slack
   slackPill: $("#slackPill"),
   slackPillText: $("#slackPillText"),
-  slackPopover: $("#slackPopover"),
-  slackDetail: $("#slackDetail"),
   // gmail
   gmailPill: $("#gmailPill"),
   gmailPillText: $("#gmailPillText"),
-  gmailPopover: $("#gmailPopover"),
-  gmailDetail: $("#gmailDetail"),
+  // detail drawer
+  detailDrawer: $("#detailDrawer"),
+  drawerOverlay: $("#drawerOverlay"),
+  drawerBody: $("#drawerBody"),
+  drawerTitle: $("#drawerTitle"),
+  drawerRefresh: $("#drawerRefresh"),
+  drawerClose: $("#drawerClose"),
   // settings dialog
   settingsDialog: $("#settingsDialog"),
   settingsForm: $("#settingsForm"),
@@ -84,6 +84,12 @@ const el = {
   gmailDisconnect: $("#gmailDisconnectBtn"),
   gmailNotify: $("#gmailNotify"),
   gmailHint: $("#gmailHint"),
+  anthropicKey: $("#anthropicKey"),
+  anthropicModel: $("#anthropicModel"),
+  anthropicStatus: $("#anthropicStatus"),
+  anthropicSave: $("#anthropicSaveBtn"),
+  anthropicClear: $("#anthropicClearBtn"),
+  anthropicHint: $("#anthropicHint"),
   theme: $("#theme"),
   accent: $("#accentTheme"),
   resetSettings: $("#resetSettingsBtn"),
@@ -115,16 +121,19 @@ let timer = null;
 let boards = [];                              // [{ id, name, icon, columns, tasks }]
 let activeBoardId = null;
 let board = { columns: [], tasks: {} };       // points at the active board
+let globalList = { title: "Pinned", taskIds: [], tasks: {} }; // persistent list shown on every board
 let tickInterval = null;
 let editingTask = null;
 let editingBoard = null;                      // board id when editing, null when adding
 let pickedIcon = "📋";
 let isDragging = false;
 let isEditingBoard = false;
+let isAddingCard = false;                     // a card composer is open — don't let a re-render wipe it
 let calConnected = false;
 let slackCfg = null; // { workspaceUrl, token, dCookie, notify } or null
 let gmailConnected = false;
 let gmailNotify = false;
+let anthropicCfg = null; // { apiKey, model } or null
 
 const BOARD_ICONS = ["🏠","💼","🌿","📋","🎯","🚀","💡","📚","🛒","💪","🎨","✈️","💰","🍳","❤️","🔧","🌟","📦","🧠","🎸","📅","🎬","💬","💎","💊","🏦","🛠️","🌙"];
 
@@ -195,6 +204,10 @@ document.addEventListener("keydown", (e) => {
   if (e.code === "Space") { e.preventDefault(); if (timer) send(timer.isRunning ? "pause" : "start"); }
   else if (e.key.toLowerCase() === "r") send("reset");
   else if (e.key.toLowerCase() === "s") send("skip");
+  else if (e.key.toLowerCase() === "c") {
+    const hovered = document.querySelector(".card:hover");
+    if (hovered && hovered.dataset.taskId) deleteCardById(hovered.dataset.taskId);
+  }
 });
 
 // ----------------------------- settings -----------------------------
@@ -223,6 +236,7 @@ function openSettings() {
   renderSlackSettings();
   el.gmailNotify.checked = gmailNotify;
   renderGmailSettings();
+  renderAnthropicSettings();
   el.autoBackupFile.checked = settings.autoBackupFile !== false;
   renderBackupHistory();
   el.settingsDialog.showModal();
@@ -305,6 +319,7 @@ async function applyRestore(parsed) {
   } catch (e) {}
   const patch = { boards: parsed.boards, activeBoardId: parsed.activeBoardId };
   if (parsed.settings) patch.settings = { ...DEFAULT_SETTINGS, ...parsed.settings };
+  if (parsed.globalList) patch.globalList = parsed.globalList;
   await chrome.storage.local.set(patch);
   location.reload();
 }
@@ -383,7 +398,29 @@ el.backupHistory.addEventListener("click", async (e) => {
 // ----------------------------- boards -----------------------------
 
 async function saveBoard() { await chrome.storage.local.set({ boards, activeBoardId }); }
+async function saveGlobalList() { await chrome.storage.local.set({ globalList }); }
 function newId() { return crypto.randomUUID(); }
+
+// Find a task currently on screen (active board or the global list) by id.
+function findTask(taskId) { return board.tasks[taskId] || globalList.tasks[taskId] || null; }
+
+// Locate which container (a board column or the global list) holds a task,
+// along with the task map that owns it. Returns null if it isn't on screen.
+function locateTask(taskId) {
+  const col = board.columns.find((c) => c.taskIds.includes(taskId));
+  if (col) return { container: col, tasks: board.tasks };
+  if (globalList.taskIds.includes(taskId)) return { container: globalList, tasks: globalList.tasks };
+  return null;
+}
+
+// Delete a card from wherever it lives (used by the editor and the 'c' shortcut).
+function deleteCardById(taskId) {
+  const loc = locateTask(taskId);
+  if (!loc) return;
+  loc.container.taskIds = loc.container.taskIds.filter((id) => id !== taskId);
+  delete loc.tasks[taskId];
+  saveBoard(); saveGlobalList(); renderBoard(); renderGlobalList();
+}
 
 function defaultColumns() {
   return [
@@ -674,45 +711,52 @@ function renderColumn(col) {
   del.className = "column-del"; del.textContent = "✕"; del.title = "Delete list";
   del.addEventListener("click", () => deleteColumn(col.id));
 
-  head.append(title, count, del);
+  // a button to move the whole list to another board
+  const move = document.createElement("button");
+  move.className = "column-move"; move.textContent = "⤴"; move.title = "Move list to another board";
+  move.setAttribute("aria-label", "Move list to another board");
+  move.addEventListener("click", (e) => { e.stopPropagation(); openMoveListMenu(col.id, move); });
+
+  head.append(title, count, move, del);
 
   const list = document.createElement("ul");
   list.className = "column-list";
   list.dataset.columnId = col.id;
-  col.taskIds.forEach((tid) => { const t = board.tasks[tid]; if (t) list.appendChild(renderCard(t, col.id)); });
+  col.taskIds.forEach((tid) => { const t = board.tasks[tid]; if (t) list.appendChild(renderCard(t)); });
   wireDropTarget(list);
 
   const addBtn = document.createElement("button");
   addBtn.className = "add-card"; addBtn.textContent = "+ Add a card";
-  addBtn.addEventListener("click", () => startAddCard(col.id, list, addBtn));
+  addBtn.addEventListener("click", () => startAddCard(col, board.tasks, saveBoard, list, addBtn));
 
   wrap.append(head, list, addBtn);
   return wrap;
 }
 
-function renderCard(task, columnId) {
+function renderCard(task) {
   const li = document.createElement("li");
   li.className = "card"; li.draggable = true; li.dataset.taskId = task.id; li.tabIndex = 0; li.setAttribute("role", "button");
   const title = document.createElement("div"); title.className = "card-title"; title.textContent = task.title; li.appendChild(title);
   if (task.notes) { const n = document.createElement("div"); n.className = "card-notes"; n.textContent = task.notes; li.appendChild(n); }
-  li.addEventListener("click", () => openTaskEditor(columnId, task.id));
-  li.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.code === "Space") { e.preventDefault(); openTaskEditor(columnId, task.id); } });
+  li.addEventListener("click", () => openTaskEditor(task.id));
+  li.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.code === "Space") { e.preventDefault(); openTaskEditor(task.id); } });
   li.addEventListener("dragstart", (e) => { isDragging = true; li.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", task.id); });
-  li.addEventListener("dragend", () => { li.classList.remove("dragging"); isDragging = false; commitBoardOrderFromDom(); });
+  li.addEventListener("dragend", () => { li.classList.remove("dragging"); isDragging = false; commitDragFromDom(); });
   return li;
 }
 
 function wireDropTarget(list) {
+  const host = () => list.closest(".column, .global-list");
   list.addEventListener("dragover", (e) => {
     e.preventDefault();
     const dragging = document.querySelector(".card.dragging");
     if (!dragging) return;
     const after = getDragAfterElement(list, e.clientY);
     if (after == null) list.appendChild(dragging); else list.insertBefore(dragging, after);
-    list.closest(".column").classList.add("drag-over");
+    host().classList.add("drag-over");
   });
-  list.addEventListener("dragleave", () => list.closest(".column").classList.remove("drag-over"));
-  list.addEventListener("drop", (e) => { e.preventDefault(); list.closest(".column").classList.remove("drag-over"); });
+  list.addEventListener("dragleave", () => host().classList.remove("drag-over"));
+  list.addEventListener("drop", (e) => { e.preventDefault(); host().classList.remove("drag-over"); });
 }
 
 function getDragAfterElement(container, y) {
@@ -726,44 +770,85 @@ function getDragAfterElement(container, y) {
   return closest.element;
 }
 
-function commitBoardOrderFromDom() {
+// Re-read card order from the DOM after a drag. Cards can cross between the
+// active board's columns and the global list, which keep separate task maps, so
+// we pool every on-screen task and re-home each one by where its card now sits.
+function commitDragFromDom() {
+  const pool = { ...board.tasks, ...globalList.tasks };
+  const nextBoardTasks = {};
+  const nextGlobalTasks = {};
+
   document.querySelectorAll(".column[data-column-id]").forEach((colEl) => {
     const col = board.columns.find((c) => c.id === colEl.dataset.columnId);
     if (!col) return;
     col.taskIds = [...colEl.querySelectorAll(".card")].map((c) => c.dataset.taskId);
+    col.taskIds.forEach((id) => { if (pool[id]) nextBoardTasks[id] = pool[id]; });
     const countEl = colEl.querySelector(".column-count");
     if (countEl) countEl.textContent = String(col.taskIds.length);
   });
+
+  const glEl = document.querySelector(".global-list .column-list");
+  if (glEl) {
+    globalList.taskIds = [...glEl.querySelectorAll(".card")].map((c) => c.dataset.taskId);
+    globalList.taskIds.forEach((id) => { if (pool[id]) nextGlobalTasks[id] = pool[id]; });
+    const countEl = document.querySelector(".global-list .column-count");
+    if (countEl) countEl.textContent = String(globalList.taskIds.length);
+  } else {
+    // global list not on screen for some reason — keep its tasks untouched
+    Object.assign(nextGlobalTasks, globalList.tasks);
+  }
+
+  board.tasks = nextBoardTasks;
+  globalList.tasks = nextGlobalTasks;
   saveBoard();
+  saveGlobalList();
 }
 
-function startAddCard(columnId, list, addBtn) {
+// Open an inline card composer. `container` is a board column or the global list
+// (anything with a taskIds array); `tasksMap` owns the task objects; `save`
+// persists that store. While it's open, isAddingCard suppresses the storage
+// re-render so each Enter can leave the composer in place, ready for the next card.
+function startAddCard(container, tasksMap, save, list, addBtn) {
+  isAddingCard = true;
   addBtn.style.display = "none";
   const input = document.createElement("textarea");
   input.className = "add-card-input"; input.rows = 2; input.placeholder = "What needs doing?";
   list.after(input); input.focus();
-  let done = false;
-  const finish = (commit, reopen) => {
-    if (done) return;
-    done = true;
-    const text = input.value.trim(); input.remove(); addBtn.style.display = "";
-    if (commit && text) {
-      const task = { id: newId(), title: text, notes: "", createdAt: Date.now() };
-      board.tasks[task.id] = task;
-      board.columns.find((c) => c.id === columnId).taskIds.push(task.id);
-      saveBoard(); renderBoard();
-      if (reopen) {
-        const newList = el.board.querySelector(`.column-list[data-column-id="${columnId}"]`);
-        const newAddBtn = newList && newList.parentElement.querySelector(".add-card");
-        if (newList && newAddBtn) startAddCard(columnId, newList, newAddBtn);
-      }
-    }
+
+  let teardown = false;
+  // Append the new card directly (no full re-render) so the composer keeps focus.
+  const commit = () => {
+    const text = input.value.trim();
+    if (!text) return false;
+    const task = { id: newId(), title: text, notes: "", createdAt: Date.now() };
+    tasksMap[task.id] = task;
+    container.taskIds.push(task.id);
+    list.appendChild(renderCard(task));
+    const count = list.parentElement.querySelector(".column-count");
+    if (count) count.textContent = String(container.taskIds.length);
+    save();
+    return true;
   };
+  const dismiss = () => {
+    if (teardown) return;
+    teardown = true;
+    isAddingCard = false;
+    input.remove();
+    addBtn.style.display = "";
+  };
+
   input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); finish(true, true); }
-    else if (e.key === "Escape") finish(false);
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (commit()) { input.value = ""; input.focus(); } // ready for the next card
+    } else if (e.key === "Escape") {
+      teardown = true;            // discard; suppress the blur-commit removal triggers
+      isAddingCard = false;
+      input.remove();
+      addBtn.style.display = "";
+    }
   });
-  input.addEventListener("blur", () => finish(true));
+  input.addEventListener("blur", () => { if (teardown) return; commit(); dismiss(); });
 }
 
 function deleteColumn(columnId) {
@@ -782,49 +867,492 @@ function addColumn() {
   if (last) { last.focus(); last.select(); }
 }
 
+// ----------------------------- move a list to another board -----------------------------
+
+let closeMoveMenu = null;
+
+function openMoveListMenu(columnId, anchor) {
+  if (closeMoveMenu) closeMoveMenu();
+  const others = boards.filter((b) => b.id !== activeBoardId);
+
+  const menu = document.createElement("div");
+  menu.className = "move-menu";
+  const head = document.createElement("div");
+  head.className = "move-menu-head";
+  head.textContent = "Move list to…";
+  menu.appendChild(head);
+
+  if (!others.length) {
+    const empty = document.createElement("div");
+    empty.className = "move-menu-empty";
+    empty.textContent = "No other boards yet.";
+    menu.appendChild(empty);
+  } else {
+    others.forEach((b) => {
+      const item = document.createElement("button");
+      item.className = "move-menu-item";
+      const icon = document.createElement("span");
+      icon.className = "move-menu-icon"; icon.textContent = b.icon || "📋";
+      const name = document.createElement("span"); name.textContent = b.name;
+      item.append(icon, name);
+      item.addEventListener("click", () => { moveColumnToBoard(columnId, b.id); if (closeMoveMenu) closeMoveMenu(); });
+      menu.appendChild(item);
+    });
+  }
+
+  document.body.appendChild(menu);
+  // anchor under the button, kept inside the viewport
+  const r = anchor.getBoundingClientRect();
+  let left = Math.max(8, r.right - menu.offsetWidth);
+  let top = r.bottom + 6;
+  if (top + menu.offsetHeight > window.innerHeight - 8) top = Math.max(8, r.top - menu.offsetHeight - 6);
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+
+  const onDocClick = (e) => { if (!menu.contains(e.target) && e.target !== anchor) closeMoveMenu(); };
+  const onKey = (e) => { if (e.key === "Escape") closeMoveMenu(); };
+  closeMoveMenu = () => {
+    menu.remove();
+    document.removeEventListener("click", onDocClick, true);
+    document.removeEventListener("keydown", onKey, true);
+    window.removeEventListener("scroll", closeMoveMenu, true);
+    closeMoveMenu = null;
+  };
+  // defer so the click that opened the menu doesn't immediately dismiss it
+  setTimeout(() => document.addEventListener("click", onDocClick, true), 0);
+  document.addEventListener("keydown", onKey, true);
+  window.addEventListener("scroll", closeMoveMenu, true);
+}
+
+function moveColumnToBoard(columnId, targetBoardId) {
+  if (targetBoardId === activeBoardId) return;
+  const target = boards.find((b) => b.id === targetBoardId);
+  const idx = board.columns.findIndex((c) => c.id === columnId);
+  if (!target || idx === -1) return;
+  if (!target.tasks || typeof target.tasks !== "object") target.tasks = {};
+  const [col] = board.columns.splice(idx, 1);
+  // carry the list's task objects across to the destination board's task map
+  col.taskIds.forEach((tid) => {
+    const t = board.tasks[tid];
+    if (t) { target.tasks[tid] = t; delete board.tasks[tid]; }
+  });
+  target.columns.push(col);
+  saveBoard();
+  renderBoard();
+}
+
+// ----------------------------- global (pinned) list -----------------------------
+
+function normalizeGlobalList(raw) {
+  const gl = raw && typeof raw === "object" ? raw : {};
+  const tasks = gl.tasks && typeof gl.tasks === "object" ? gl.tasks : {};
+  const taskIds = Array.isArray(gl.taskIds) ? gl.taskIds.filter((id) => tasks[id]) : [];
+  return { title: typeof gl.title === "string" ? gl.title : "Pinned", taskIds, tasks };
+}
+
+function renderGlobalList() {
+  const host = el.globalList;
+  if (!host) return;
+  host.innerHTML = "";
+
+  const head = document.createElement("div");
+  head.className = "column-head global-list-head";
+  const title = document.createElement("span");
+  title.className = "global-list-title";
+  title.innerHTML = `<span aria-hidden="true">📌</span>`;
+  const label = document.createElement("span"); label.textContent = globalList.title || "Pinned";
+  title.appendChild(label);
+  const count = document.createElement("span");
+  count.className = "column-count";
+  count.textContent = String(globalList.taskIds.length);
+  head.append(title, count);
+
+  const list = document.createElement("ul");
+  list.className = "column-list";
+  list.dataset.globalList = "1";
+  globalList.taskIds.forEach((tid) => { const t = globalList.tasks[tid]; if (t) list.appendChild(renderCard(t)); });
+  wireDropTarget(list);
+
+  const addBtn = document.createElement("button");
+  addBtn.className = "add-card"; addBtn.textContent = "+ Add a card";
+  addBtn.addEventListener("click", () => startAddCard(globalList, globalList.tasks, saveGlobalList, list, addBtn));
+
+  host.append(head, list, addBtn);
+}
+
 // ----------------------------- task editor -----------------------------
 
-function openTaskEditor(columnId, taskId) {
-  const task = board.tasks[taskId];
+function openTaskEditor(taskId) {
+  const task = findTask(taskId);
   if (!task) return;
-  editingTask = { columnId, taskId };
+  editingTask = { taskId };
   el.taskTitle.value = task.title; el.taskNotes.value = task.notes || "";
   el.taskDialog.showModal(); el.taskTitle.focus();
 }
 el.taskForm.addEventListener("submit", (e) => {
   if (e.submitter && e.submitter.value === "cancel") return;
   if (!editingTask) return;
-  const task = board.tasks[editingTask.taskId]; if (!task) return;
+  const task = findTask(editingTask.taskId); if (!task) return;
   const title = el.taskTitle.value.trim(); if (!title) { e.preventDefault(); return; }
   task.title = title; task.notes = el.taskNotes.value.trim();
-  saveBoard(); renderBoard(); editingTask = null;
+  saveBoard(); saveGlobalList(); renderBoard(); renderGlobalList(); editingTask = null;
 });
 el.deleteTask.addEventListener("click", () => {
   if (!editingTask) return;
-  const { columnId, taskId } = editingTask;
-  const col = board.columns.find((c) => c.id === columnId);
-  if (col) col.taskIds = col.taskIds.filter((id) => id !== taskId);
-  delete board.tasks[taskId];
-  saveBoard(); renderBoard(); editingTask = null; el.taskDialog.close();
+  deleteCardById(editingTask.taskId);
+  editingTask = null; el.taskDialog.close();
 });
 
 // ----------------------------- popovers -----------------------------
 
-function togglePopover(pop, pill) {
-  const open = !pop.hidden;
-  closeAllPopovers();
-  if (!open) { pop.hidden = false; pill.setAttribute("aria-expanded", "true"); }
+// Weather keeps a lightweight dropdown popover; calendar/slack/gmail open the drawer.
+function toggleWxPopover() {
+  const open = !el.wxPopover.hidden;
+  closeWxPopover();
+  if (!open) { el.wxPopover.hidden = false; el.wxPill.setAttribute("aria-expanded", "true"); }
 }
-function closeAllPopovers() {
-  [el.calPopover, el.wxPopover, el.slackPopover, el.gmailPopover].forEach((p) => (p.hidden = true));
-  [el.calPill, el.wxPill, el.slackPill, el.gmailPill].forEach((p) => p.setAttribute("aria-expanded", "false"));
+function closeWxPopover() {
+  el.wxPopover.hidden = true;
+  el.wxPill.setAttribute("aria-expanded", "false");
 }
-el.calPill.addEventListener("click", (e) => { e.stopPropagation(); togglePopover(el.calPopover, el.calPill); if (!el.calPopover.hidden && calConnected) loadCalendar(true); });
-el.wxPill.addEventListener("click", (e) => { e.stopPropagation(); togglePopover(el.wxPopover, el.wxPill); });
-el.slackPill.addEventListener("click", (e) => { e.stopPropagation(); togglePopover(el.slackPopover, el.slackPill); });
-el.gmailPill.addEventListener("click", (e) => { e.stopPropagation(); togglePopover(el.gmailPopover, el.gmailPill); if (!el.gmailPopover.hidden && gmailConnected) loadGmail(true); });
-document.addEventListener("click", (e) => { if (!e.target.closest(".widget")) closeAllPopovers(); });
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAllPopovers(); });
+el.wxPill.addEventListener("click", (e) => { e.stopPropagation(); toggleWxPopover(); });
+document.addEventListener("click", (e) => {
+  if (!el.wxPopover.contains(e.target) && !el.wxPill.contains(e.target)) closeWxPopover();
+});
+
+// ----------------------------- detail drawer -----------------------------
+
+let drawerSource = null; // 'cal' | 'slack' | 'gmail' | null
+const DRAWER_TITLES = { cal: "Calendar", slack: "Slack", gmail: "Gmail" };
+
+function openDrawer(source) {
+  drawerSource = source;
+  closeWxPopover();
+  el.drawerTitle.textContent = DRAWER_TITLES[source] || "Details";
+  el.detailDrawer.hidden = false;
+  el.drawerOverlay.hidden = false;
+  el.detailDrawer.setAttribute("aria-hidden", "false");
+  requestAnimationFrame(() => el.detailDrawer.classList.add("open"));
+  loadDrawer(false);
+}
+function closeDrawer() {
+  drawerSource = null;
+  el.detailDrawer.classList.remove("open");
+  el.detailDrawer.setAttribute("aria-hidden", "true");
+  el.drawerOverlay.hidden = true;
+  setTimeout(() => { if (!drawerSource) el.detailDrawer.hidden = true; }, 220);
+}
+function loadDrawer(force) {
+  if (drawerSource === "cal") loadCalendarDrawer(force);
+  else if (drawerSource === "slack") loadSlackDrawer();
+  else if (drawerSource === "gmail") loadGmailDrawer(force);
+}
+function drawerMsg(text, cls = "drawer-empty") {
+  el.drawerBody.innerHTML = "";
+  const d = document.createElement("div");
+  d.className = cls; d.textContent = text;
+  el.drawerBody.appendChild(d);
+}
+
+el.calPill.addEventListener("click", (e) => { e.stopPropagation(); openDrawer("cal"); });
+el.slackPill.addEventListener("click", (e) => { e.stopPropagation(); openDrawer("slack"); });
+el.gmailPill.addEventListener("click", (e) => { e.stopPropagation(); openDrawer("gmail"); });
+el.drawerClose.addEventListener("click", closeDrawer);
+el.drawerOverlay.addEventListener("click", closeDrawer);
+el.drawerRefresh.addEventListener("click", () => loadDrawer(true));
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if (drawerSource) closeDrawer();
+  closeWxPopover();
+});
+
+// ---- calendar drawer ----
+async function loadCalendarDrawer(force) {
+  if (drawerSource !== "cal") return;
+  if (!calConfigured() || !calConnected) { drawerMsg("Connect Google Calendar in settings to see your events."); return; }
+  drawerMsg("Loading…", "drawer-loading");
+  try {
+    const cache = (await chrome.storage.local.get("calCache")).calCache;
+    const fresh = cache && Date.now() - cache.ts < 5 * 60 * 1000;
+    let events;
+    if (fresh && !force) {
+      events = cache.events;
+    } else {
+      const token = await getToken(false, CAL_SCOPES);
+      events = await calFetchEvents(token);
+      await chrome.storage.local.set({ calCache: { events, ts: Date.now() } });
+      renderCalendar(events); // keep the pill in sync
+    }
+    if (drawerSource === "cal") renderCalendarDrawer(events);
+  } catch (e) {
+    if (drawerSource === "cal") drawerMsg("Couldn't load your calendar. Try reconnecting in settings.");
+  }
+}
+function renderCalendarDrawer(events) {
+  const now = Date.now();
+  const todayStart = startOfDay(now);
+  const tomorrowStart = todayStart + 86400000;
+  const dayAfterStart = tomorrowStart + 86400000;
+  const todays = events.filter((e) => e.startMs >= todayStart && e.startMs < tomorrowStart);
+  const tomorrows = events.filter((e) => e.startMs >= tomorrowStart && e.startMs < dayAfterStart);
+  el.drawerBody.innerHTML = "";
+  el.drawerBody.appendChild(renderCalDrawerSection("Today", todays, now));
+  el.drawerBody.appendChild(renderCalDrawerSection("Tomorrow", tomorrows, now));
+}
+function renderCalDrawerSection(label, list, now) {
+  const wrap = document.createElement("div");
+  wrap.className = "cal-section";
+  const head = document.createElement("div");
+  head.className = "cal-day-head"; head.textContent = label;
+  wrap.appendChild(head);
+  if (!list.length) {
+    const empty = document.createElement("div");
+    empty.className = "cal-empty"; empty.textContent = "Nothing scheduled.";
+    wrap.appendChild(empty);
+    return wrap;
+  }
+  list.forEach((e) => {
+    const row = document.createElement("div");
+    row.className = "cal-row";
+    if (!e.allDay && e.startMs <= now && e.endMs > now) row.classList.add("now");
+    else if (e.endMs <= now) row.classList.add("past");
+    const time = document.createElement("div"); time.className = "cal-time";
+    time.textContent = e.allDay ? "all-day" : `${fmtT(e.startMs)}–${fmtT(e.endMs)}`;
+    const body = document.createElement("div");
+    const t = document.createElement("div"); t.className = "cal-title"; t.textContent = e.title; body.appendChild(t);
+    const det = document.createElement("div"); det.className = "cal-ev-detail";
+    if (e.location) { const m = document.createElement("div"); m.textContent = "📍 " + e.location; det.appendChild(m); }
+    if (e.attendees && e.attendees.length) {
+      const a = document.createElement("div");
+      a.textContent = "👥 " + e.attendees.slice(0, 6).join(", ") + (e.attendees.length > 6 ? ` +${e.attendees.length - 6}` : "");
+      det.appendChild(a);
+    }
+    if (e.description) {
+      const d = document.createElement("div");
+      d.textContent = e.description.length > 240 ? e.description.slice(0, 240) + "…" : e.description;
+      det.appendChild(d);
+    }
+    if (e.videoLink) {
+      const j = document.createElement("a");
+      j.href = e.videoLink; j.target = "_blank"; j.rel = "noopener"; j.textContent = "Join video call ↗";
+      det.appendChild(j);
+    }
+    if (e.htmlLink) {
+      const o = document.createElement("a");
+      o.href = e.htmlLink; o.target = "_blank"; o.rel = "noopener"; o.textContent = "Open in Calendar ↗";
+      det.appendChild(o);
+    }
+    if (det.childNodes.length) body.appendChild(det);
+    row.append(time, body);
+    wrap.appendChild(row);
+  });
+  return wrap;
+}
+
+// ---- gmail drawer ----
+const GMAIL_LIST_URL = "https://www.googleapis.com/gmail/v1/users/me/messages";
+const GMAIL_MSG_URL = "https://www.googleapis.com/gmail/v1/users/me/messages/";
+
+async function gmailAuthedFetch(url) {
+  let token = await getToken(false, GMAIL_SCOPES);
+  let r = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+  if (r.status === 401) {
+    await new Promise((res) => chrome.identity.removeCachedAuthToken({ token }, res));
+    token = await getToken(false, GMAIL_SCOPES).catch(() => null);
+    if (!token) throw new Error("auth expired");
+    r = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+  }
+  if (!r.ok) throw new Error("gmail http " + r.status);
+  return r.json();
+}
+function gmailParseFrom(v) {
+  if (!v) return "";
+  const m = v.match(/^\s*"?([^"<]*?)"?\s*<[^>]+>/);
+  return (m && m[1].trim()) || v.replace(/<[^>]+>/, "").trim() || v;
+}
+async function gmailFetchMessages(max = 20) {
+  const list = await gmailAuthedFetch(`${GMAIL_LIST_URL}?labelIds=INBOX&maxResults=${max}`);
+  const ids = (list.messages || []).map((m) => m.id);
+  const results = [];
+  const queue = ids.slice();
+  const worker = async () => {
+    while (queue.length) {
+      const id = queue.shift();
+      try {
+        const m = await gmailAuthedFetch(
+          `${GMAIL_MSG_URL}${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`
+        );
+        const headers = (m.payload && m.payload.headers) || [];
+        const h = (n) => { const x = headers.find((z) => z.name.toLowerCase() === n); return x ? x.value : ""; };
+        results.push({
+          id: m.id,
+          from: gmailParseFrom(h("from")),
+          subject: h("subject") || "(no subject)",
+          date: h("date"),
+          dateMs: m.internalDate ? Number(m.internalDate) : 0,
+          unread: Array.isArray(m.labelIds) && m.labelIds.includes("UNREAD"),
+        });
+      } catch (e) { /* skip this message */ }
+    }
+  };
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  results.sort((a, b) => b.dateMs - a.dateMs);
+  return results;
+}
+async function loadGmailDrawer(force) {
+  if (drawerSource !== "gmail") return;
+  if (!gmailConfigured() || !gmailConnected) { drawerMsg("Connect Gmail in settings to see your inbox."); return; }
+  drawerMsg("Loading…", "drawer-loading");
+  try {
+    const cache = (await chrome.storage.local.get("gmailMsgCache")).gmailMsgCache;
+    const fresh = cache && Date.now() - cache.ts < 2 * 60 * 1000;
+    let messages;
+    if (fresh && !force) messages = cache.messages;
+    else {
+      messages = await gmailFetchMessages(20);
+      await chrome.storage.local.set({ gmailMsgCache: { messages, ts: Date.now() } });
+    }
+    if (drawerSource === "gmail") renderGmailDrawer(messages);
+  } catch (e) {
+    if (drawerSource === "gmail") drawerMsg("Couldn't load Gmail. Try reconnecting in settings.");
+  }
+}
+function fmtMailDate(ms, raw) {
+  if (!ms) return raw || "";
+  return new Date(ms).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+}
+function renderGmailDrawer(messages) {
+  el.drawerBody.innerHTML = "";
+  if (!messages || !messages.length) { drawerMsg("Inbox is empty."); return; }
+  messages.forEach((m) => {
+    const a = document.createElement("a");
+    a.className = "gm-msg" + (m.unread ? " unread" : "");
+    a.href = `https://mail.google.com/mail/u/0/#all/${m.id}`;
+    a.target = "_blank"; a.rel = "noopener";
+    const from = document.createElement("div"); from.className = "gm-from"; from.textContent = m.from || "(unknown sender)";
+    const subj = document.createElement("div"); subj.className = "gm-subj"; subj.textContent = m.subject;
+    const date = document.createElement("div"); date.className = "gm-date"; date.textContent = fmtMailDate(m.dateMs, m.date);
+    a.append(from, subj, date);
+    el.drawerBody.appendChild(a);
+  });
+}
+
+// ---- slack drawer ----
+function aiSend(type, payload) {
+  return new Promise((resolve) => {
+    try { chrome.runtime.sendMessage({ type, payload }, (r) => resolve(r || { ok: false, error: "send_failed" })); }
+    catch (e) { resolve({ ok: false, error: "send_failed" }); }
+  });
+}
+function fmtSlackTs(ts) {
+  const ms = Math.floor(parseFloat(ts) * 1000);
+  if (!ms) return "";
+  return new Date(ms).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+}
+async function loadSlackDrawer() {
+  if (drawerSource !== "slack") return;
+  if (!slackConfigured()) { drawerMsg("Connect Slack in settings to see your unread messages."); return; }
+  drawerMsg("Loading messages…", "drawer-loading");
+  const res = await new Promise((resolve) => {
+    try { chrome.runtime.sendMessage({ type: "slackUnread" }, (r) => resolve(r || { ok: false, error: "send_failed" })); }
+    catch (e) { resolve({ ok: false, error: "send_failed" }); }
+  });
+  if (drawerSource !== "slack") return;
+  if (!res || !res.ok) {
+    drawerMsg(res && res.error === "auth"
+      ? "Slack session expired — re-paste your token & cookie in settings."
+      : "Couldn't load Slack messages. Try the refresh button.");
+    return;
+  }
+  renderSlackDrawer(res.conversations || []);
+}
+function renderSlackDrawer(conversations) {
+  el.drawerBody.innerHTML = "";
+  if (!conversations.length) { drawerMsg("No unread Slack messages 🎉"); return; }
+  const aiReady = anthropicReady();
+  conversations.forEach((conv) => {
+    const box = document.createElement("div"); box.className = "sk-conv";
+    const head = document.createElement("div"); head.className = "sk-conv-head";
+    const title = document.createElement("span"); title.className = "sk-conv-title"; title.textContent = conv.title;
+    head.appendChild(title);
+    if (conv.mentionCount > 0) {
+      const b = document.createElement("span"); b.className = "sk-conv-badge"; b.textContent = `@${conv.mentionCount}`;
+      head.appendChild(b);
+    }
+    box.appendChild(head);
+    if (!conv.messages.length) {
+      const e = document.createElement("div"); e.className = "sk-msg-text"; e.textContent = "(no readable messages)";
+      box.appendChild(e);
+    }
+    conv.messages.forEach((m) => box.appendChild(renderSlackMessage(conv, m, aiReady)));
+    el.drawerBody.appendChild(box);
+  });
+}
+function renderSlackMessage(conv, m, aiReady) {
+  const wrap = document.createElement("div"); wrap.className = "sk-msg";
+  const meta = document.createElement("div"); meta.className = "sk-msg-meta";
+  const sender = document.createElement("span"); sender.className = "sk-msg-sender"; sender.textContent = m.sender;
+  meta.appendChild(sender);
+  meta.appendChild(document.createTextNode(" · " + fmtSlackTs(m.ts)));
+  const text = document.createElement("div"); text.className = "sk-msg-text"; text.textContent = m.text;
+  wrap.append(meta, text);
+
+  const actions = document.createElement("div"); actions.className = "sk-actions";
+  const explainBtn = document.createElement("button"); explainBtn.className = "sk-btn"; explainBtn.textContent = "Wyjaśnij (PL)";
+  const draftBtn = document.createElement("button"); draftBtn.className = "sk-btn"; draftBtn.textContent = "Odpowiedz (EN)";
+  if (!aiReady) {
+    explainBtn.disabled = true; draftBtn.disabled = true;
+    explainBtn.title = draftBtn.title = "Add an Anthropic API key in settings";
+  }
+  actions.append(explainBtn, draftBtn);
+  const out = document.createElement("div"); out.className = "sk-ai-out";
+  wrap.append(actions, out);
+
+  const payload = { sender: m.sender, text: m.text, channelTitle: conv.title };
+  explainBtn.addEventListener("click", () => runAiExplain(explainBtn, out, payload));
+  draftBtn.addEventListener("click", () => runAiDraft(draftBtn, out, payload));
+  return wrap;
+}
+async function runAiExplain(btn, out, payload) {
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = "…"; out.innerHTML = "";
+  const res = await aiSend("aiExplain", payload);
+  btn.disabled = false; btn.textContent = label;
+  if (!res.ok) { showAiError(out, res.error); return; }
+  out.innerHTML = "";
+  const box = document.createElement("div"); box.className = "sk-ai-explain"; box.textContent = res.text;
+  out.appendChild(box);
+}
+async function runAiDraft(btn, out, payload) {
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = "…"; out.innerHTML = "";
+  const res = await aiSend("aiDraft", payload);
+  btn.disabled = false; btn.textContent = label;
+  if (!res.ok) { showAiError(out, res.error); return; }
+  out.innerHTML = "";
+  const ta = document.createElement("textarea"); ta.className = "sk-ai-draft"; ta.value = res.text;
+  const row = document.createElement("div"); row.className = "sk-actions";
+  const copy = document.createElement("button"); copy.className = "sk-btn"; copy.textContent = "Kopiuj";
+  copy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(ta.value);
+      copy.textContent = "Skopiowano ✓";
+      setTimeout(() => (copy.textContent = "Kopiuj"), 1500);
+    } catch (e) { copy.textContent = "Błąd kopiowania"; }
+  });
+  row.appendChild(copy);
+  out.append(ta, row);
+}
+function showAiError(out, error) {
+  const e = document.createElement("div"); e.className = "sk-err";
+  e.textContent =
+    error === "no_key" ? "Dodaj klucz API Anthropic w ustawieniach."
+    : error === "auth" ? "Nieprawidłowy klucz API (401)."
+    : error === "rate_limited" ? "Limit zapytań — spróbuj za chwilę."
+    : error === "overloaded" ? "Model przeciążony — spróbuj ponownie."
+    : "Błąd AI: " + error;
+  out.innerHTML = ""; out.appendChild(e);
+}
 
 // ----------------------------- weather -----------------------------
 
@@ -971,7 +1499,20 @@ async function calFetchEvents(token) {
       const allDay = !e.start.dateTime;
       const startMs = allDay ? new Date(e.start.date + "T00:00:00").getTime() : new Date(e.start.dateTime).getTime();
       const endMs = allDay ? new Date(e.end.date + "T00:00:00").getTime() : new Date(e.end.dateTime).getTime();
-      return { title: e.summary || "(no title)", allDay, startMs, endMs, location: e.location || "" };
+      const attendees = (e.attendees || [])
+        .filter((a) => !a.resource)
+        .map((a) => a.displayName || a.email)
+        .filter(Boolean);
+      let videoLink = e.hangoutLink || "";
+      if (!videoLink && e.conferenceData && Array.isArray(e.conferenceData.entryPoints)) {
+        const v = e.conferenceData.entryPoints.find((p) => p.entryPointType === "video");
+        if (v) videoLink = v.uri || "";
+      }
+      return {
+        title: e.summary || "(no title)", allDay, startMs, endMs,
+        location: e.location || "", description: e.description || "",
+        attendees, videoLink, htmlLink: e.htmlLink || "",
+      };
     })
     .sort((a, b) => a.startMs - b.startMs);
 }
@@ -980,35 +1521,6 @@ function fmtT(ms) { return new Date(ms).toLocaleTimeString([], { hour: "2-digit"
 
 function startOfDay(ms) { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); }
 
-function renderCalSection(label, list, now) {
-  const wrap = document.createElement("div");
-  wrap.className = "cal-section";
-  const head = document.createElement("div");
-  head.className = "cal-day-head";
-  head.textContent = label;
-  wrap.appendChild(head);
-  if (!list.length) {
-    const empty = document.createElement("div");
-    empty.className = "cal-empty";
-    empty.textContent = "Nothing scheduled.";
-    wrap.appendChild(empty);
-    return wrap;
-  }
-  list.forEach((e) => {
-    const row = document.createElement("div");
-    row.className = "cal-row";
-    if (!e.allDay && e.startMs <= now && e.endMs > now) row.classList.add("now");
-    else if (e.endMs <= now) row.classList.add("past");
-    const time = document.createElement("div"); time.className = "cal-time";
-    time.textContent = e.allDay ? "all-day" : fmtT(e.startMs);
-    const body = document.createElement("div");
-    const t = document.createElement("div"); t.className = "cal-title"; t.textContent = e.title; body.appendChild(t);
-    if (e.location) { const m = document.createElement("div"); m.className = "cal-meta"; m.textContent = e.location; body.appendChild(m); }
-    row.append(time, body); wrap.appendChild(row);
-  });
-  return wrap;
-}
-
 function renderCalendar(events) {
   const now = Date.now();
   const todayStart = startOfDay(now);
@@ -1016,8 +1528,6 @@ function renderCalendar(events) {
   const dayAfterStart = tomorrowStart + 86400000;
   const todays = events.filter((e) => e.startMs >= todayStart && e.startMs < tomorrowStart);
   const tomorrows = events.filter((e) => e.startMs >= tomorrowStart && e.startMs < dayAfterStart);
-
-  el.calPopoverDate.textContent = "Today & tomorrow";
 
   // pill — prioritise today, fall back to tomorrow's first meeting
   const ongoing = todays.find((e) => !e.allDay && e.startMs <= now && e.endMs > now);
@@ -1038,17 +1548,11 @@ function renderCalendar(events) {
   } else {
     el.calPillText.textContent = "No meetings";
   }
-
-  // list — two sections
-  el.calList.innerHTML = "";
-  el.calList.appendChild(renderCalSection("Today", todays, now));
-  el.calList.appendChild(renderCalSection("Tomorrow", tomorrows, now));
 }
 
-function renderCalIdle(text, listText) {
+function renderCalIdle(text) {
   el.calPill.classList.remove("now");
   el.calPillText.textContent = text;
-  el.calList.innerHTML = `<div class="cal-empty">${listText || ""}</div>`;
 }
 
 async function loadCalendar(force = false) {
@@ -1108,10 +1612,8 @@ el.calDisconnect.addEventListener("click", async () => {
   calConnected = false;
   await chrome.storage.local.set({ calConnected: false, calCache: null });
   renderCalSettings();
-  renderCalIdle("Connect calendar", "Connect in settings to see today's meetings.");
+  renderCalIdle("Connect calendar");
 });
-
-el.calRefresh.addEventListener("click", () => loadCalendar(true));
 
 // ----------------------------- slack -----------------------------
 
@@ -1120,42 +1622,17 @@ function slackConfigured() {
 }
 
 // Render the top-bar pill + popover from a cached counts snapshot.
+// Pill-only: the bar badge. Full message bodies live in the drawer (loadSlackDrawer).
 function renderSlack(counts) {
   el.slackPill.classList.remove("has-unread");
-  if (!slackConfigured()) {
-    el.slackPillText.textContent = "Slack";
-    el.slackDetail.innerHTML = `<div class="slack-empty">Connect Slack in settings to see unread DMs and mentions.</div>`;
-    return;
-  }
+  if (!slackConfigured()) { el.slackPillText.textContent = "Slack"; return; }
   if (counts && counts.error) {
     el.slackPillText.textContent = counts.error === "auth" ? "Slack !" : "Slack —";
-    el.slackDetail.innerHTML =
-      counts.error === "auth"
-        ? `<div class="slack-empty">Session expired — re-paste your token &amp; cookie in settings.</div>`
-        : `<div class="slack-empty">Couldn't reach Slack. It'll retry automatically.</div>`;
     return;
   }
   const total = counts && typeof counts.total === "number" ? counts.total : 0;
-  const dms = counts && typeof counts.dms === "number" ? counts.dms : 0;
-  const mentions = counts && typeof counts.mentions === "number" ? counts.mentions : 0;
   el.slackPillText.textContent = total > 0 ? String(total) : "0";
   if (total > 0) el.slackPill.classList.add("has-unread");
-  const updated = counts && counts.ts
-    ? new Date(counts.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
-    : "—";
-  const link = slackCfg.workspaceUrl;
-  el.slackDetail.innerHTML = `
-    <div class="slack-now">
-      <span class="slack-stat"><b>${dms}</b> DMs</span>
-      <span class="slack-stat"><b>${mentions}</b> @mentions</span>
-    </div>
-    <div class="slack-foot">
-      <a href="${link}" target="_blank" rel="noopener">Open Slack ↗</a>
-      <button type="button" class="link-btn" id="slackRefreshBtn" title="Refresh">↻</button>
-    </div>
-    <div class="slack-loc">updated ${updated}</div>`;
-  const rb = document.getElementById("slackRefreshBtn");
-  if (rb) rb.addEventListener("click", () => send("slackRefresh"));
 }
 
 function renderSlackSettings() {
@@ -1250,41 +1727,17 @@ async function gmailFetchUnread(token) {
   return { unread: toCount(j.messagesUnread), threadsUnread: toCount(j.threadsUnread) };
 }
 
-// Render the top-bar pill + popover from a cached snapshot.
+// Pill-only: the bar badge (unread count). The message list lives in the drawer.
 function renderGmail(snap) {
   el.gmailPill.classList.remove("gmail-unread");
-  if (!gmailConfigured() || !gmailConnected) {
-    el.gmailPillText.textContent = "Gmail";
-    el.gmailDetail.innerHTML = `<div class="slack-empty">Connect Gmail in settings to see your inbox unread count.</div>`;
-    return;
-  }
+  if (!gmailConfigured() || !gmailConnected) { el.gmailPillText.textContent = "Gmail"; return; }
   if (snap && snap.error) {
     el.gmailPillText.textContent = snap.error === "auth" ? "Gmail !" : "Gmail —";
-    el.gmailDetail.innerHTML =
-      snap.error === "auth"
-        ? `<div class="slack-empty">Access expired — reconnect Gmail in settings.</div>`
-        : `<div class="slack-empty">Couldn't reach Gmail. It'll retry automatically.</div>`;
     return;
   }
   const unread = snap && typeof snap.unread === "number" ? snap.unread : 0;
-  const threads = snap && typeof snap.threadsUnread === "number" ? snap.threadsUnread : 0;
   el.gmailPillText.textContent = unread > 99 ? "99+" : String(unread);
   if (unread > 0) el.gmailPill.classList.add("gmail-unread");
-  const updated = snap && snap.ts
-    ? new Date(snap.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
-    : "—";
-  el.gmailDetail.innerHTML = `
-    <div class="slack-now">
-      <span class="slack-stat"><b>${unread}</b> unread</span>
-      <span class="slack-stat"><b>${threads}</b> threads</span>
-    </div>
-    <div class="slack-foot">
-      <a href="https://mail.google.com/mail/u/0/#inbox" target="_blank" rel="noopener">Open Gmail ↗</a>
-      <button type="button" class="link-btn" id="gmailRefreshBtn" title="Refresh">↻</button>
-    </div>
-    <div class="slack-loc">updated ${updated}</div>`;
-  const rb = document.getElementById("gmailRefreshBtn");
-  if (rb) rb.addEventListener("click", () => loadGmail(true));
 }
 
 async function loadGmail(force = false) {
@@ -1374,6 +1827,39 @@ el.gmailNotify.addEventListener("change", async () => {
   await chrome.storage.local.set({ gmailNotify });
 });
 
+// ----------------------------- anthropic (AI) -----------------------------
+
+function anthropicReady() { return !!(anthropicCfg && anthropicCfg.apiKey); }
+
+function renderAnthropicSettings() {
+  el.anthropicStatus.textContent = anthropicReady() ? "Key saved" : "Not set";
+  el.anthropicModel.value = (anthropicCfg && anthropicCfg.model) || "claude-haiku-4-5";
+  el.anthropicKey.value = ""; // never echo the stored key back into the field
+}
+
+el.anthropicSave.addEventListener("click", async () => {
+  const typed = el.anthropicKey.value.trim();
+  const apiKey = typed || (anthropicCfg && anthropicCfg.apiKey) || "";
+  if (!apiKey) { el.anthropicStatus.textContent = "Enter a key"; return; }
+  anthropicCfg = { apiKey, model: el.anthropicModel.value };
+  await chrome.storage.local.set({ anthropic: anthropicCfg });
+  el.anthropicKey.value = "";
+  el.anthropicStatus.textContent = "Key saved";
+  el.anthropicHint.textContent = "Saved on this device. Used by the Slack panel's AI buttons.";
+});
+
+el.anthropicModel.addEventListener("change", async () => {
+  if (!anthropicReady()) return;
+  anthropicCfg = { ...anthropicCfg, model: el.anthropicModel.value };
+  await chrome.storage.local.set({ anthropic: anthropicCfg });
+});
+
+el.anthropicClear.addEventListener("click", async () => {
+  anthropicCfg = null;
+  await chrome.storage.local.remove("anthropic");
+  renderAnthropicSettings();
+});
+
 // ----------------------------- storage sync -----------------------------
 
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -1382,19 +1868,23 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (changes.settings) { settings = { ...DEFAULT_SETTINGS, ...changes.settings.newValue }; applyTheme(); renderTimer(); }
   if (changes.slackCounts) renderSlack(changes.slackCounts.newValue);
   if (changes.slack) { slackCfg = changes.slack.newValue || null; }
-  if ((changes.boards || changes.activeBoardId) && !isDragging && !isEditingBoard) {
+  if ((changes.boards || changes.activeBoardId) && !isDragging && !isEditingBoard && !isAddingCard) {
     if (changes.boards && Array.isArray(changes.boards.newValue)) boards = changes.boards.newValue;
     if (changes.activeBoardId) activeBoardId = changes.activeBoardId.newValue || activeBoardId;
     syncActiveBoard();
     renderRail();
     renderBoard();
   }
+  if (changes.globalList && changes.globalList.newValue && !isDragging && !isAddingCard) {
+    globalList = normalizeGlobalList(changes.globalList.newValue);
+    renderGlobalList();
+  }
 });
 
 // ----------------------------- init -----------------------------
 
 async function init() {
-  const data = await chrome.storage.local.get(["settings", "timer", "board", "boards", "activeBoardId", "calConnected", "trelloSeeded", "slack", "slackCounts", "gmailConnected", "gmailNotify", "gmailCache"]);
+  const data = await chrome.storage.local.get(["settings", "timer", "board", "boards", "activeBoardId", "globalList", "calConnected", "trelloSeeded", "slack", "slackCounts", "gmailConnected", "gmailNotify", "gmailCache", "anthropic"]);
   settings = { ...DEFAULT_SETTINGS, ...(data.settings || {}) };
   timer = data.timer || { isRunning: false, isPaused: false, mode: "focus", endTime: null, remaining: settings.focusMin * 60, completedFocusTotal: 0 };
 
@@ -1420,16 +1910,20 @@ async function init() {
     : boards[0].id;
   syncActiveBoard();
   await saveBoard();
+  globalList = normalizeGlobalList(data.globalList);
+  await saveGlobalList();
   calConnected = !!data.calConnected;
   slackCfg = data.slack || null;
   gmailConnected = !!data.gmailConnected;
   gmailNotify = !!data.gmailNotify;
+  anthropicCfg = data.anthropic || null;
 
   applyTheme();
   renderTimer();
   startTick();
   renderRail();
   renderBoard();
+  renderGlobalList();
   loadWeather();
   loadCalendar();
   renderSlack(data.slackCounts || null);
