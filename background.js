@@ -342,6 +342,24 @@ async function cmdSkip() {
   await advancePhase({ silent: true });
 }
 
+// Nudge the current countdown by deltaSeconds (positive = extend, negative = shorten).
+// Works whether the timer is running, paused, or idle; clamped to 1s..180min.
+async function cmdAdjust(deltaSeconds) {
+  const { timer } = await getState();
+  const MIN = 1, MAX = 180 * 60;
+  const clamp = (s) => Math.min(MAX, Math.max(MIN, s));
+  if (timer.isRunning && timer.endTime) {
+    const current = Math.max(0, Math.round((timer.endTime - Date.now()) / 1000));
+    const remaining = clamp(current + deltaSeconds);
+    const next = await setTimer({ endTime: Date.now() + remaining * 1000, remaining });
+    await scheduleAlarms(next);
+  } else {
+    const next = await setTimer({ remaining: clamp(timer.remaining + deltaSeconds) });
+    await scheduleAlarms(next);
+  }
+  await refreshBadge();
+}
+
 async function cmdSettingsChanged() {
   const { settings, timer } = await getState();
   if (!timer.isRunning && !timer.isPaused) {
@@ -454,6 +472,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case "pause": await cmdPause(); break;
       case "reset": await cmdReset(); break;
       case "skip": await cmdSkip(); break;
+      case "adjust": await cmdAdjust(msg.seconds); break;
       case "setMode": await cmdSetMode(msg.mode); break;
       case "settingsChanged": await cmdSettingsChanged(); break;
       case "previewSound": await playSound(msg.sound, msg.volume, "go"); break;

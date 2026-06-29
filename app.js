@@ -205,6 +205,15 @@ document.addEventListener("keydown", (e) => {
   if (e.code === "Space") { e.preventDefault(); if (timer) send(timer.isRunning ? "pause" : "start"); }
   else if (e.key.toLowerCase() === "r") send("reset");
   else if (e.key.toLowerCase() === "s") send("skip");
+  else if (e.key.toLowerCase() === "f") send("setMode", { mode: "focus" });
+  else if (e.key.toLowerCase() === "b") send("setMode", { mode: "break" });
+  else if (e.key === "+" || e.key === "=" || e.key === "ArrowUp") { e.preventDefault(); send("adjust", { seconds: 60 }); }
+  else if (e.key === "-" || e.key === "_" || e.key === "ArrowDown") { e.preventDefault(); send("adjust", { seconds: -60 }); }
+  else if (e.key.toLowerCase() === "m") toggleMute();
+  else if (e.key.toLowerCase() === "a") toggleAutoStart();
+  else if (e.key.toLowerCase() === "t") cycleTheme();
+  else if (e.key.toLowerCase() === "n") { e.preventDefault(); const btn = document.querySelector(".global-list .add-card"); if (btn) btn.click(); }
+  else if (e.key === "?") { e.preventDefault(); toggleShortcutHelp(); }
   else if (e.key.toLowerCase() === "c") {
     const hovered = document.querySelector(".card:hover");
     if (hovered && hovered.dataset.taskId) deleteCardById(hovered.dataset.taskId);
@@ -238,18 +247,90 @@ document.addEventListener("keydown", (e) => {
   flashSaved();
 }, true);
 
-// Tiny transient "Saved ✓" confirmation toast.
+// Tiny transient confirmation toast (used by Ctrl/Cmd+S and the Pomodoro shortcuts).
 let savedToastEl = null, savedToastTimer = null;
-function flashSaved() {
+function flashToast(text) {
   if (!savedToastEl) {
     savedToastEl = document.createElement("div");
     savedToastEl.className = "save-toast";
-    savedToastEl.textContent = "Saved ✓";
     document.body.appendChild(savedToastEl);
   }
+  savedToastEl.textContent = text;
   savedToastEl.classList.add("show");
   if (savedToastTimer) clearTimeout(savedToastTimer);
   savedToastTimer = setTimeout(() => savedToastEl.classList.remove("show"), 1100);
+}
+function flashSaved() { flashToast("Saved ✓"); }
+
+// ----------------------------- pomodoro / app shortcuts -----------------------------
+
+// M — mute or unmute the phase-transition chime, remembering the previous sound.
+let preMuteSound = "gong";
+function toggleMute() {
+  if (settings.sound !== "none") {
+    preMuteSound = settings.sound;
+    settings = { ...settings, sound: "none" };
+  } else {
+    settings = { ...settings, sound: preMuteSound || "gong" };
+  }
+  chrome.storage.local.set({ settings });
+  flashToast(settings.sound === "none" ? "Chime muted 🔇" : "Chime on 🔔");
+}
+
+// A — toggle whether the next phase auto-starts when the current one ends.
+function toggleAutoStart() {
+  settings = { ...settings, autoStartNext: !settings.autoStartNext };
+  chrome.storage.local.set({ settings });
+  flashToast(settings.autoStartNext ? "Auto-start on ▶" : "Auto-start off ⏸");
+}
+
+// T — cycle the theme: auto → dark → light → auto.
+const THEME_CYCLE = ["auto", "dark", "light"];
+function cycleTheme() {
+  const i = THEME_CYCLE.indexOf(settings.theme);
+  const next = THEME_CYCLE[(i + 1) % THEME_CYCLE.length];
+  settings = { ...settings, theme: next };
+  chrome.storage.local.set({ settings });
+  applyTheme();
+  flashToast(`Theme: ${next}`);
+}
+
+// ? — toggle a modal cheat-sheet listing every shortcut.
+const SHORTCUT_ROWS = [
+  ["Space", "Start / pause timer"],
+  ["F", "Switch to a focus block"],
+  ["B", "Switch to a break"],
+  ["R", "Reset current phase"],
+  ["S", "Skip to next phase"],
+  ["+ / − (↑ / ↓)", "Extend / shorten by 1 min"],
+  ["M", "Mute / unmute chime"],
+  ["A", "Toggle auto-start next phase"],
+  ["T", "Cycle theme (auto / dark / light)"],
+  ["N", "Add a card to the Pinned list"],
+  ["C", "Delete the card under the cursor"],
+  ["Ctrl / ⌘ + S", "Save"],
+  ["?", "Show this cheat sheet"],
+];
+let helpDialog = null;
+function buildShortcutHelp() {
+  const dlg = document.createElement("dialog");
+  dlg.className = "dlg shortcut-help";
+  const rows = SHORTCUT_ROWS
+    .map(([k, d]) => `<li><kbd>${k}</kbd><span>${d}</span></li>`)
+    .join("");
+  dlg.innerHTML = `
+    <form method="dialog" class="dlg-form">
+      <div class="dlg-head"><h2>Keyboard shortcuts</h2></div>
+      <ul class="sc-list">${rows}</ul>
+      <div class="dlg-actions"><button class="btn" value="close">Close</button></div>
+    </form>`;
+  dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
+  document.body.appendChild(dlg);
+  return dlg;
+}
+function toggleShortcutHelp() {
+  if (!helpDialog) helpDialog = buildShortcutHelp();
+  if (helpDialog.open) helpDialog.close(); else helpDialog.showModal();
 }
 
 // ----------------------------- settings -----------------------------
@@ -1063,7 +1144,18 @@ function renderGlobalList() {
   const title = document.createElement("span");
   title.className = "global-list-title";
   title.innerHTML = `<span aria-hidden="true">📌</span>`;
-  const label = document.createElement("span"); label.textContent = globalList.title || "Pinned";
+  const label = document.createElement("input");
+  label.className = "column-title global-list-name";
+  label.value = globalList.title || "Pinned";
+  label.setAttribute("aria-label", "Pinned list name");
+  label.addEventListener("focus", () => (isEditingBoard = true));
+  label.addEventListener("blur", () => {
+    isEditingBoard = false;
+    const v = label.value.trim() || "Pinned";
+    label.value = v;
+    if (v !== globalList.title) { globalList.title = v; saveGlobalList(); }
+  });
+  label.addEventListener("keydown", (e) => { if (e.key === "Enter") label.blur(); });
   title.appendChild(label);
   const count = document.createElement("span");
   count.className = "column-count";
@@ -1076,25 +1168,12 @@ function renderGlobalList() {
   globalList.taskIds.forEach((tid) => { const t = globalList.tasks[tid]; if (t) list.appendChild(renderCard(t)); });
   wireDropTarget(list);
 
-  // Lower third: darker widget tray split into four slots that widgets can fill.
-  // Slot 1 is the work-clock counting down to 5pm; the rest are open placeholders.
-  const widgets = document.createElement("div");
-  widgets.className = "global-widgets";
-  for (let i = 0; i < 4; i++) {
-    const slot = document.createElement("div");
-    slot.className = "widget-slot";
-    slot.dataset.slot = String(i + 1);
-    if (i === 0) {
-      slot.classList.add("widget-filled");
-      slot.appendChild(buildWorkClockWidget());
-    } else {
-      slot.classList.add("widget-empty");
-      slot.innerHTML = `<span class="widget-empty-mark" aria-hidden="true">+</span><span class="widget-empty-label">Widget ${i + 1}</span>`;
-    }
-    widgets.appendChild(slot);
-  }
+  const addBtn = document.createElement("button");
+  addBtn.className = "add-card"; addBtn.textContent = "+ Add a card";
+  addBtn.addEventListener("click", () => startAddCard(globalList, globalList.tasks, saveGlobalList, list, addBtn));
 
-  host.append(head, list, widgets);
+  // Lower third: the widget tray, rendered from the saved layout (see buildWidgetTray).
+  host.append(head, list, addBtn, buildWidgetTray());
 }
 
 // ----------------------------- work clock widget -----------------------------
@@ -1218,6 +1297,537 @@ function updateWorkClock() {
   const mins = Math.floor(diffMin % 60);
   if (countdown) countdown.textContent = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
   if (sub) sub.textContent = "to 5 PM";
+}
+
+// ----------------------------- soundscape widget -----------------------------
+// Relaxing background audio, fully synthesized with Web Audio — no files, no
+// network, no extra permissions (same offline ethos as the transition chime).
+// Each scene is a small generative graph; playback is a DOM-independent singleton
+// so it keeps going while you switch boards and the widget re-renders.
+
+const MUSIC_SCENES = [
+  { key: "lofi",    label: "Lofi" },
+  { key: "ambient", label: "Ambient" },
+  { key: "piano",   label: "Piano" },
+  { key: "nature",  label: "Nature" },
+  { key: "rain",    label: "Rain" },
+];
+
+const Soundscape = (() => {
+  const MASTER = 0.6;
+  let ac = null, master = null, comp = null;
+  let current = null;   // { name, nodes, timers, extraStop? }
+  let pending = null;   // a scene mid fade-out, awaiting its deferred teardown
+  let stopTimer = null;
+
+  function ctx() {
+    if (!ac) {
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      comp = ac.createDynamicsCompressor();      // gentle safety limiter
+      master = ac.createGain(); master.gain.value = 0.0001;
+      master.connect(comp).connect(ac.destination);
+    }
+    return ac;
+  }
+
+  // Looping noise bed. "brown" is integrated white noise (soft, low rumble);
+  // "white" is raw (bright hiss). Both are short buffers set to loop.
+  function noiseBuffer(seconds, kind) {
+    const len = Math.floor(ac.sampleRate * seconds);
+    const buf = ac.createBuffer(1, len, ac.sampleRate);
+    const d = buf.getChannelData(0);
+    if (kind === "brown") {
+      let last = 0;
+      for (let i = 0; i < len; i++) {
+        const w = Math.random() * 2 - 1;
+        last = (last + 0.02 * w) / 1.02;
+        d[i] = last * 3.5;
+      }
+    } else {
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    }
+    return buf;
+  }
+  function noiseSource(seconds, kind) {
+    const src = ac.createBufferSource();
+    src.buffer = noiseBuffer(seconds, kind);
+    src.loop = true; src.start();
+    return src;
+  }
+  // Oscillate an AudioParam between min and max at `freq` Hz (slow LFOs for
+  // wind/rain swells and tremolo). Returns the [osc, gain] nodes so we can stop them.
+  function lfo(freq, min, max, param) {
+    const osc = ac.createOscillator(); osc.frequency.value = freq;
+    const g = ac.createGain(); g.gain.value = (max - min) / 2;
+    param.value = (max + min) / 2;
+    osc.connect(g).connect(param);
+    osc.start();
+    return [osc, g];
+  }
+
+  // Delicate light rain — soft, muffled, gentle patter rather than a downpour.
+  function buildRain(dest) {
+    const nodes = [], timers = [];
+    const brown = noiseSource(3, "brown"); nodes.push(brown);
+    const lp = ac.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 1000; nodes.push(lp);
+    const bg = ac.createGain(); bg.gain.value = 0.3; nodes.push(bg);
+    brown.connect(lp).connect(bg).connect(dest);
+
+    const white = noiseSource(2, "white"); nodes.push(white);
+    const bp = ac.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 2000; bp.Q.value = 0.5; nodes.push(bp);
+    const hg = ac.createGain(); nodes.push(hg);
+    white.connect(bp).connect(hg).connect(dest);
+    nodes.push(...lfo(0.06, 0.03, 0.09, hg.gain));     // soft "sheets" swelling gently
+
+    const drip = () => {                                // sparse, soft droplets
+      const n = noiseSource(0.2, "white");
+      const f = ac.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = 900 + Math.random() * 1800; f.Q.value = 6;
+      const g = ac.createGain(); const t = ac.currentTime;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.09, t + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+      n.connect(f).connect(g).connect(dest); n.stop(t + 0.22);
+      timers.push(setTimeout(drip, 800 + Math.random() * 2800));
+    };
+    timers.push(setTimeout(drip, 1000));
+    return { nodes, timers };
+  }
+
+  // Delicate nature — a soft breeze with the occasional faraway, gentle birdsong.
+  function buildNature(dest) {
+    const nodes = [], timers = [];
+    const wind = noiseSource(3, "brown"); nodes.push(wind);
+    const lp = ac.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 420; lp.Q.value = 0.7; nodes.push(lp);
+    const wg = ac.createGain(); nodes.push(wg);
+    wind.connect(lp).connect(wg).connect(dest);
+    nodes.push(...lfo(0.04, 240, 560, lp.frequency));   // slow, soft breeze
+    nodes.push(...lfo(0.07, 0.12, 0.28, wg.gain));
+
+    const chirp = () => {                               // sparse, quiet bird calls
+      const t0 = ac.currentTime;
+      const count = 1 + Math.floor(Math.random() * 3);
+      const base = 1900 + Math.random() * 1600;
+      for (let i = 0; i < count; i++) {
+        const o = ac.createOscillator(); o.type = "sine";
+        const g = ac.createGain(); const st = t0 + i * 0.13;
+        o.frequency.setValueAtTime(base * (1 + Math.random() * 0.1), st);
+        o.frequency.exponentialRampToValueAtTime(base * (1.2 + Math.random() * 0.3), st + 0.06);
+        o.frequency.exponentialRampToValueAtTime(base, st + 0.12);
+        g.gain.setValueAtTime(0.0001, st);
+        g.gain.exponentialRampToValueAtTime(0.055, st + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, st + 0.13);
+        o.connect(g).connect(dest); o.start(st); o.stop(st + 0.16);
+      }
+      timers.push(setTimeout(chirp, 4000 + Math.random() * 8000));
+    };
+    timers.push(setTimeout(chirp, 2500));
+    return { nodes, timers };
+  }
+
+  // Ambient music — a sustained low drone under a lush chord that crossfades very slowly
+  // between voicings, with a slow filter drift and a faint high shimmer. Calm, evolving.
+  function buildAmbient(dest) {
+    const nodes = [], timers = [];
+    const lp = ac.createBiquadFilter(); lp.type = "lowpass"; lp.Q.value = 0.4; nodes.push(lp);
+    const pad = ac.createGain(); pad.gain.value = 0.0001; nodes.push(pad);
+    lp.connect(pad).connect(dest);
+    nodes.push(...lfo(0.012, 700, 1500, lp.frequency));   // very slow tone-colour drift
+    nodes.push(...lfo(0.05, 0.16, 0.28, pad.gain));        // gentle swell
+
+    const drone = ac.createOscillator(); drone.type = "sine"; drone.frequency.value = 130.81; // C3
+    const dg = ac.createGain(); dg.gain.value = 0.12;
+    drone.connect(dg).connect(dest); drone.start(); nodes.push(drone, dg);
+
+    const chords = [
+      [196.00, 261.63, 329.63, 392.00],   // Cadd9-ish
+      [174.61, 261.63, 349.23, 440.00],   // Fmaj9-ish
+      [220.00, 293.66, 349.23, 440.00],   // Am add
+    ];
+    let voices = [];
+    const setChord = (notes) => {
+      const t = ac.currentTime;
+      voices.forEach((v) => { v.g.gain.cancelScheduledValues(t); v.g.gain.setTargetAtTime(0.0001, t, 1.6); try { v.o.stop(t + 4.5); } catch (e) {} });
+      voices = notes.map((f) => {
+        const o = ac.createOscillator(); o.type = "sine"; o.frequency.value = f; o.detune.value = Math.random() * 6 - 3;
+        const g = ac.createGain(); g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.1 / notes.length, t + 2.5);
+        o.connect(g).connect(lp); o.start();
+        return { o, g };
+      });
+    };
+    let idx = 0; setChord(chords[0]);
+    timers.push(setInterval(() => { idx = (idx + 1) % chords.length; setChord(chords[idx]); }, 15000));
+
+    const sh = ac.createOscillator(); sh.type = "sine"; sh.frequency.value = 1567.98; // G6 shimmer
+    const shg = ac.createGain(); shg.gain.value = 0.0001;
+    sh.connect(shg).connect(dest); sh.start(); nodes.push(sh, shg);
+    nodes.push(...lfo(0.07, 0.0001, 0.02, shg.gain));
+
+    return { nodes, timers, extraStop: () => { const t = ac.currentTime; voices.forEach((v) => { try { v.o.stop(t + 0.1); } catch (e) {} }); } };
+  }
+
+  // Piano — sparse, soft generative notes from a C-major pentatonic scale; each note is a
+  // mellow triangle + octave sine with a quick attack and long decay (gentle, music-like).
+  function buildPiano(dest) {
+    const nodes = [], timers = [];
+    const out = ac.createGain(); out.gain.value = 0.9; nodes.push(out); out.connect(dest);
+    const scale = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25, 587.33]; // C D E G A C D
+    const note = () => {
+      const t = ac.currentTime;
+      const f = scale[Math.floor(Math.random() * scale.length)] * (Math.random() < 0.3 ? 0.5 : 1);
+      const o1 = ac.createOscillator(); o1.type = "triangle"; o1.frequency.value = f;
+      const o2 = ac.createOscillator(); o2.type = "sine"; o2.frequency.value = f * 2;
+      const g = ac.createGain(); g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.16, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 2.4);
+      const g2 = ac.createGain(); g2.gain.value = 0.3; o2.connect(g2).connect(g);
+      o1.connect(g).connect(out);
+      o1.start(t); o2.start(t); o1.stop(t + 2.6); o2.stop(t + 2.6);
+      timers.push(setTimeout(note, 1400 + Math.random() * 2600));
+    };
+    timers.push(setTimeout(note, 300));
+    return { nodes, timers };
+  }
+
+  function buildLofi(dest) {
+    const nodes = [], timers = [];
+    const lp = ac.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 900; lp.Q.value = 0.6; nodes.push(lp);
+    const pad = ac.createGain(); pad.gain.value = 0.0001; nodes.push(pad);
+    lp.connect(pad).connect(dest);
+    nodes.push(...lfo(0.2, 0.16, 0.26, pad.gain));      // slow tremolo
+
+    // mellow ii–vi–IV–V style loop; one chord every 6s, voices crossfaded
+    const chords = [
+      [261.63, 311.13, 392.00, 493.88],
+      [220.00, 261.63, 329.63, 392.00],
+      [174.61, 220.00, 261.63, 349.23],
+      [196.00, 246.94, 293.66, 392.00],
+    ];
+    let voices = [];
+    const setChord = (notes) => {
+      const t = ac.currentTime;
+      voices.forEach((v) => { v.g.gain.cancelScheduledValues(t); v.g.gain.setTargetAtTime(0.0001, t, 0.4); try { v.o.stop(t + 1.6); } catch (e) {} });
+      voices = notes.map((f, i) => {
+        const o = ac.createOscillator(); o.type = i === 0 ? "sine" : "triangle";
+        o.frequency.value = f; o.detune.value = Math.random() * 8 - 4;
+        const g = ac.createGain(); g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime((0.12 / notes.length) * (i === 0 ? 1.4 : 1), t + 0.6);
+        o.connect(g).connect(lp); o.start();
+        return { o, g };
+      });
+    };
+    let idx = 0; setChord(chords[0]);
+    timers.push(setInterval(() => { idx = (idx + 1) % chords.length; setChord(chords[idx]); }, 6000));
+
+    const white = noiseSource(2, "white"); nodes.push(white);   // vinyl crackle
+    const hp = ac.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 1200; nodes.push(hp);
+    const cg = ac.createGain(); cg.gain.value = 0.015; nodes.push(cg);
+    white.connect(hp).connect(cg).connect(dest);
+
+    return { nodes, timers, extraStop: () => { const t = ac.currentTime; voices.forEach((v) => { try { v.o.stop(t + 0.1); } catch (e) {} }); } };
+  }
+
+  const BUILDERS = { rain: buildRain, nature: buildNature, ambient: buildAmbient, piano: buildPiano, lofi: buildLofi };
+
+  function teardown(scene) {
+    scene.timers.forEach((id) => { clearTimeout(id); clearInterval(id); });
+    scene.nodes.forEach((n) => { try { n.stop && n.stop(); } catch (e) {} try { n.disconnect(); } catch (e) {} });
+    if (scene.extraStop) try { scene.extraStop(); } catch (e) {}
+  }
+  function fade(to, dur) {
+    const t = ac.currentTime;
+    master.gain.cancelScheduledValues(t);
+    master.gain.setValueAtTime(Math.max(0.0001, master.gain.value), t);
+    master.gain.linearRampToValueAtTime(Math.max(0.0001, to), t + dur);
+  }
+
+  return {
+    isPlaying: () => !!current,
+    currentName: () => current && current.name,
+    play(name) {
+      if (!BUILDERS[name]) return;
+      const a = ctx();
+      if (a.state === "suspended") a.resume();
+      if (stopTimer) { clearTimeout(stopTimer); stopTimer = null; }
+      if (pending) { teardown(pending); pending = null; }   // kill a scene still fading out from a prior stop()
+      master.gain.cancelScheduledValues(a.currentTime);
+      master.gain.setValueAtTime(0.0001, a.currentTime);   // mute instantly to avoid a click on switch
+      if (current) { teardown(current); current = null; }
+      current = { name, ...BUILDERS[name](master) };
+      fade(MASTER, 0.6);
+    },
+    stop() {
+      if (!current) return;
+      fade(0.0001, 0.4);
+      pending = current; current = null;
+      if (stopTimer) clearTimeout(stopTimer);
+      stopTimer = setTimeout(() => { if (pending) { teardown(pending); pending = null; } stopTimer = null; }, 480);
+    },
+  };
+})();
+
+let musicScene = "lofi";   // last-picked scene, so the footer Play knows what to resume
+
+// Every scene is backed by a real internet-radio stream for studio-quality audio; the
+// synthesized builders (BUILDERS, above) stay as an automatic offline fallback. Clicking
+// a playing scene advances to its next station, then past the last one switches it off —
+// so single-station scenes simply toggle, and Lofi cycles its three instrumental channels.
+const STREAM_SCENES = {
+  lofi: {
+    stations: [
+      { url: "https://ice1.somafm.com/fluid-128-mp3",       name: "Fluid · instrumental hip-hop" },
+      { url: "https://ice1.somafm.com/groovesalad-128-mp3", name: "Groove Salad · chill beats" },
+      { url: "https://ice1.somafm.com/beatblender-128-mp3", name: "Beat Blender · downtempo" },
+    ],
+  },
+  ambient: { stations: [{ url: "https://ice1.somafm.com/dronezone-128-mp3", name: "Drone Zone · deep ambient" }] },
+  piano:   { stations: [{ url: "https://stream.epic-classical.com/classical-piano", name: "Classical Piano" }] },
+  nature:  { stations: [{ url: "https://nature-rex.radioca.st/stream", name: "Nature · field recordings" }] },
+  rain:    { stations: [{ url: "https://maggie.torontocast.com:2020/stream/natureradiorain", name: "Rain" }] },
+};
+let streamAudio = null;
+let streamStationIdx = 0;
+let activeScene = null;     // scene currently sounding (null = stopped)
+let activeEngine = null;    // "stream" | "synth"
+
+function musicIsPlaying() { return activeScene !== null; }
+function musicCurrent() { return activeScene; }
+
+function musicStop() {
+  if (activeEngine === "stream" && streamAudio) streamAudio.pause();
+  if (activeEngine === "synth") Soundscape.stop();
+  activeScene = null; activeEngine = null;
+}
+
+function musicPlay(scene) {
+  musicStop();
+  activeScene = scene;
+  if (STREAM_SCENES[scene]) { streamStationIdx = 0; startStream(scene); }
+  else { activeEngine = "synth"; Soundscape.play(scene); }
+}
+
+// Click an already-playing stream scene → advance to the next station; wrap past the
+// last one back to "off" so the same button can also stop it.
+function musicCycleStation(scene) {
+  const stations = STREAM_SCENES[scene].stations;
+  streamStationIdx += 1;
+  if (streamStationIdx >= stations.length) { streamStationIdx = 0; musicStop(); return; }
+  activeScene = scene;
+  startStream(scene);
+}
+
+function startStream(scene) {
+  activeEngine = "stream";
+  const stations = STREAM_SCENES[scene].stations;
+  const station = stations[streamStationIdx] || stations[0];
+  if (!streamAudio) {
+    streamAudio = new Audio();
+    streamAudio.preload = "none";
+    streamAudio.addEventListener("error", () => { if (activeEngine === "stream") fallbackToSynth(scene); });
+  }
+  streamAudio.src = station.url;
+  streamAudio.volume = 0.55;
+  const p = streamAudio.play();
+  if (p && p.catch) p.catch(() => { if (activeEngine === "stream") fallbackToSynth(scene); });
+  flashToast(station.name);
+}
+
+// Stream blocked/offline → keep the same scene but switch to the synthesized mix.
+function fallbackToSynth(scene) {
+  if (activeScene !== scene) return;
+  activeEngine = "synth";
+  Soundscape.play(scene);
+  flashToast("Stream unavailable — playing offline mix");
+  refreshMusicUI();
+}
+
+function buildMusicWidget() {
+  const wrap = document.createElement("div");
+  wrap.className = "music-widget";
+  // Dimmed layered-waves SVG sits behind the controls; it drifts gently while playing.
+  wrap.innerHTML = `
+    <svg class="mw-bg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <circle class="mw-bg-orb" cx="74" cy="24" r="11" />
+      <path class="mw-bg-w1" d="M0 60 C 18 52 32 64 50 57 S 82 48 100 55 L100 100 L0 100 Z" />
+      <path class="mw-bg-w2" d="M0 74 C 20 66 34 80 52 72 S 84 64 100 71 L100 100 L0 100 Z" />
+      <path class="mw-bg-w3" d="M0 87 C 16 80 36 92 54 85 S 86 79 100 86 L100 100 L0 100 Z" />
+    </svg>
+    <div class="mw-head">
+      <span class="mw-title"><span aria-hidden="true">🎵</span> Soundscapes</span>
+      <span class="mw-eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+    </div>
+    <div class="mw-grid"></div>
+  `;
+  const grid = wrap.querySelector(".mw-grid");
+  MUSIC_SCENES.forEach((s) => {
+    const chip = document.createElement("button");
+    chip.type = "button"; chip.className = "mw-chip"; chip.dataset.scene = s.key;
+    chip.setAttribute("aria-label", `Play ${s.label}`);
+    chip.innerHTML = `<span class="mw-chip-label">${s.label}</span>`;
+    chip.addEventListener("click", () => {
+      musicScene = s.key;
+      if (musicCurrent() === s.key) {
+        if (STREAM_SCENES[s.key]) musicCycleStation(s.key); else musicStop();
+      } else {
+        musicPlay(s.key);
+      }
+      refreshMusicUI();
+    });
+    grid.appendChild(chip);
+  });
+  syncMusicWidget(wrap);
+  return wrap;
+}
+
+function refreshMusicUI() {
+  const root = document.querySelector(".music-widget");
+  if (root) syncMusicWidget(root);
+}
+
+// Reflect the singleton player's state: glow + EQ while playing, and highlight the
+// active scene. Clicking the active chip stops it (there is no separate Pause button).
+function syncMusicWidget(root) {
+  const playingName = musicCurrent();
+  root.classList.toggle("playing", musicIsPlaying());
+  root.querySelectorAll(".mw-chip").forEach((c) => {
+    const on = c.dataset.scene === playingName;
+    c.classList.toggle("active", on);
+    c.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+}
+
+// ----------------------------- widget tray + manager -----------------------------
+// The pinned list's lower tray holds up to WIDGET_SLOTS widgets. Which widget sits in
+// which slot is data, persisted in `widgetLayout` and edited via the manager modal, so
+// new widgets only need a registry entry to become placeable.
+
+const WIDGET_REGISTRY = {
+  workclock:   { id: "workclock",   name: "Work clock",  build: buildWorkClockWidget },
+  soundscapes: { id: "soundscapes", name: "Soundscapes", build: buildMusicWidget },
+};
+const WIDGET_SLOTS = 4;
+const DEFAULT_WIDGET_LAYOUT = ["workclock", "soundscapes", null, null];
+let widgetLayout = DEFAULT_WIDGET_LAYOUT.slice();
+
+// Keep the layout to WIDGET_SLOTS entries, drop unknown ids, and never place the same
+// widget twice (a widget lives in exactly one slot).
+function normalizeWidgetLayout(raw) {
+  const arr = Array.isArray(raw) ? raw : [];
+  const seen = new Set();
+  const out = [];
+  for (let i = 0; i < WIDGET_SLOTS; i++) {
+    const id = arr[i];
+    if (id && WIDGET_REGISTRY[id] && !seen.has(id)) { out.push(id); seen.add(id); }
+    else out.push(null);
+  }
+  return out;
+}
+async function saveWidgetLayout() { await chrome.storage.local.set({ widgetLayout }); }
+
+// Build the 2×2 tray from the current layout. Empty slots open the manager when clicked.
+function buildWidgetTray() {
+  const tray = document.createElement("div");
+  tray.className = "widget-tray";
+
+  const head = document.createElement("div");
+  head.className = "widget-tray-head";
+  head.innerHTML = `<span class="widget-tray-title">Widgets</span>`;
+  const manage = document.createElement("button");
+  manage.type = "button"; manage.className = "widget-tray-manage";
+  manage.textContent = "⚙"; manage.title = "Manage widgets"; manage.setAttribute("aria-label", "Manage widgets");
+  manage.addEventListener("click", openWidgetManager);
+  head.appendChild(manage);
+
+  const grid = document.createElement("div");
+  grid.className = "global-widgets";
+  widgetLayout.forEach((id, i) => {
+    const slot = document.createElement("div");
+    slot.className = "widget-slot"; slot.dataset.slot = String(i + 1);
+    const w = id && WIDGET_REGISTRY[id];
+    if (w) {
+      slot.classList.add("widget-filled");
+      if (id === "soundscapes") slot.classList.add("widget-music-slot");
+      slot.appendChild(w.build());
+    } else {
+      slot.classList.add("widget-empty");
+      slot.innerHTML = `<span class="widget-empty-mark" aria-hidden="true">+</span><span class="widget-empty-label">Add widget</span>`;
+      slot.addEventListener("click", openWidgetManager);
+    }
+    grid.appendChild(slot);
+  });
+
+  tray.append(head, grid);
+  return tray;
+}
+
+let widgetMgrDialog = null;
+function openWidgetManager() {
+  if (!widgetMgrDialog) {
+    widgetMgrDialog = document.createElement("dialog");
+    widgetMgrDialog.className = "dlg widget-mgr";
+    widgetMgrDialog.addEventListener("click", (e) => { if (e.target === widgetMgrDialog) widgetMgrDialog.close(); });
+    document.body.appendChild(widgetMgrDialog);
+  }
+  renderWidgetManager();
+  if (!widgetMgrDialog.open) widgetMgrDialog.showModal();
+}
+
+function renderWidgetManager() {
+  const dlg = widgetMgrDialog;
+  if (!dlg) return;
+  const slotsHtml = widgetLayout.map((id, i) => {
+    const w = id && WIDGET_REGISTRY[id];
+    return `<li class="wm-slot">
+      <span class="wm-slot-n">${i + 1}</span>
+      <span class="wm-slot-name ${w ? "" : "is-empty"}">${w ? w.name : "Empty"}</span>
+      <span class="wm-slot-actions">
+        <button type="button" class="wm-mv" data-i="${i}" data-dir="-1" ${i === 0 ? "disabled" : ""} title="Move up" aria-label="Move up">↑</button>
+        <button type="button" class="wm-mv" data-i="${i}" data-dir="1" ${i === WIDGET_SLOTS - 1 ? "disabled" : ""} title="Move down" aria-label="Move down">↓</button>
+        ${w ? `<button type="button" class="wm-rm" data-i="${i}" title="Remove" aria-label="Remove">✕</button>` : `<span class="wm-rm-spacer"></span>`}
+      </span>
+    </li>`;
+  }).join("");
+  const placed = new Set(widgetLayout.filter(Boolean));
+  const available = Object.values(WIDGET_REGISTRY).filter((w) => !placed.has(w.id));
+  const hasEmpty = widgetLayout.some((x) => !x);
+  const availHtml = available.length
+    ? available.map((w) => `<li class="wm-avail"><span>${w.name}</span><button type="button" class="wm-add" data-id="${w.id}" ${hasEmpty ? "" : "disabled"} title="${hasEmpty ? "Add to first empty slot" : "No empty slot"}">Add</button></li>`).join("")
+    : `<li class="wm-note">All widgets are placed.</li>`;
+  dlg.innerHTML = `
+    <form method="dialog" class="dlg-form">
+      <div class="dlg-head"><h2>Manage widgets</h2></div>
+      <div class="wm-section">Slots</div>
+      <ul class="wm-list">${slotsHtml}</ul>
+      <div class="wm-section">Available</div>
+      <ul class="wm-list">${availHtml}</ul>
+      <div class="dlg-actions"><button class="btn" value="close">Done</button></div>
+    </form>`;
+  dlg.querySelectorAll(".wm-mv").forEach((b) => b.addEventListener("click", (e) => { e.preventDefault(); moveWidget(+b.dataset.i, +b.dataset.dir); }));
+  dlg.querySelectorAll(".wm-rm").forEach((b) => b.addEventListener("click", (e) => { e.preventDefault(); removeWidgetAt(+b.dataset.i); }));
+  dlg.querySelectorAll(".wm-add").forEach((b) => b.addEventListener("click", (e) => { e.preventDefault(); addWidget(b.dataset.id); }));
+}
+
+function addWidget(id) {
+  if (!WIDGET_REGISTRY[id] || widgetLayout.includes(id)) return;
+  const empty = widgetLayout.indexOf(null);
+  if (empty === -1) return;
+  widgetLayout[empty] = id;
+  commitWidgetLayout();
+}
+function removeWidgetAt(i) { widgetLayout[i] = null; commitWidgetLayout(); }
+function moveWidget(i, dir) {
+  const j = i + dir;
+  if (j < 0 || j >= WIDGET_SLOTS) return;
+  [widgetLayout[i], widgetLayout[j]] = [widgetLayout[j], widgetLayout[i]];
+  commitWidgetLayout();
+}
+function commitWidgetLayout() {
+  widgetLayout = normalizeWidgetLayout(widgetLayout);
+  // If the soundscapes widget was removed, stop its audio — there's no UI left to do it.
+  if (!widgetLayout.includes("soundscapes") && musicIsPlaying()) musicStop();
+  saveWidgetLayout();
+  renderGlobalList();      // rebuild the tray
+  renderWidgetManager();   // refresh the modal
 }
 
 // ----------------------------- task editor -----------------------------
@@ -2115,16 +2725,21 @@ chrome.storage.onChanged.addListener((changes, area) => {
     renderRail();
     renderBoard();
   }
-  if (changes.globalList && changes.globalList.newValue && !isDragging && !isAddingCard) {
+  if (changes.globalList && changes.globalList.newValue && !isDragging && !isEditingBoard && !isAddingCard) {
     globalList = normalizeGlobalList(changes.globalList.newValue);
     renderGlobalList();
+  }
+  if (changes.widgetLayout && changes.widgetLayout.newValue && !isDragging && !isAddingCard) {
+    widgetLayout = normalizeWidgetLayout(changes.widgetLayout.newValue);
+    renderGlobalList();
+    renderWidgetManager();
   }
 });
 
 // ----------------------------- init -----------------------------
 
 async function init() {
-  const data = await chrome.storage.local.get(["settings", "timer", "board", "boards", "activeBoardId", "globalList", "calConnected", "trelloSeeded", "slack", "slackCounts", "gmailConnected", "gmailNotify", "gmailCache", "anthropic"]);
+  const data = await chrome.storage.local.get(["settings", "timer", "board", "boards", "activeBoardId", "globalList", "widgetLayout", "calConnected", "trelloSeeded", "slack", "slackCounts", "gmailConnected", "gmailNotify", "gmailCache", "anthropic"]);
   settings = { ...DEFAULT_SETTINGS, ...(data.settings || {}) };
   timer = data.timer || { isRunning: false, isPaused: false, mode: "focus", endTime: null, remaining: settings.focusMin * 60, completedFocusTotal: 0 };
 
@@ -2152,6 +2767,7 @@ async function init() {
   await saveBoard();
   globalList = normalizeGlobalList(data.globalList);
   await saveGlobalList();
+  widgetLayout = normalizeWidgetLayout(data.widgetLayout || DEFAULT_WIDGET_LAYOUT);
   calConnected = !!data.calConnected;
   slackCfg = data.slack || null;
   gmailConnected = !!data.gmailConnected;

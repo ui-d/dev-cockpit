@@ -19,6 +19,9 @@
       "https://www.googleapis.com/auth/gmail.metadata"
     ]
   },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; media-src 'self' https://*.somafm.com https://stream.epic-classical.com https://nature-rex.radioca.st https://maggie.torontocast.com:2020 data: blob:;"
+  },
   "background": {
     "service_worker": "background.js",
     "type": "module"
