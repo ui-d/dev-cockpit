@@ -6,11 +6,13 @@
 ![Vanilla JS](https://img.shields.io/badge/Vanilla-JS-F7DF1E?logo=javascript&logoColor=black)
 ![No build step](https://img.shields.io/badge/build-none-brightgreen)
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
-![Version](https://img.shields.io/badge/version-2.3.0-orange)
+![Version](https://img.shields.io/badge/version-2.4.0-orange)
+![Languages: EN · PL](https://img.shields.io/badge/languages-EN%20%C2%B7%20PL-success)
 
 **A board-first Chrome extension that's your whole workday on one tab.**
 A slim top bar carries a Pomodoro timer, today's calendar, the weather, and your Slack +
 Gmail unread counts. The rest of the page switches between **Boards**, **Ideas**, and **News**.
+The whole interface speaks **English or Polish** — switch any time, no reload.
 
 <img src="screenshots/hero.png" alt="DevCockpit board view in the Zed (One Dark) theme — top bar with timer, weather, the Boards/Ideas/News switcher, calendar, Slack and Gmail; three lists; a pinned list and widget tray on the right" width="100%">
 
@@ -175,13 +177,6 @@ Open settings (gear, bottom-left) → **Appearance**. Nine base themes — `Syst
 `Forest`, `Rose`, `Amber`, `Crimson`, `Teal`, `Graphite`). The break phase always uses sage green so
 you can tell focus from break at a glance. The choice is per-device and applies instantly.
 
-### 🌐 Language
-
-The same **Appearance** tab has a **Language** picker — **English** or **Polski (Polish)**. The whole
-interface switches instantly, no reload. New installs start in your browser's language (Polish if
-Chrome is set to Polish, otherwise English) and you can change it any time. Your own content — board
-names, cards, and notes — is never translated.
-
 <table>
 <tr>
 <td width="20%"><img src="screenshots/theme-zed.png" alt="Zed (One Dark) theme" width="100%"><br><div align="center"><sub>Zed (One Dark)</sub></div></td>
@@ -193,6 +188,28 @@ names, cards, and notes — is never translated.
 </table>
 
 <div align="center"><img src="screenshots/settings-appearance.png" alt="Settings → Appearance tab with theme and accent pickers" width="70%"></div>
+
+---
+
+## 🌐 Language
+
+DevCockpit is fully bilingual — **English** and **Polski (Polish)**. Settings (gear, bottom-left) →
+**Appearance** → **Language**. The entire interface — top bar, the Boards / Ideas / News views,
+every settings tab, dialogs, drawers, empty states, even the timer and Slack desktop notifications —
+switches **instantly, with no reload**.
+
+- **Auto-detected on first run.** New installs follow your browser language: Polish if Chrome is set
+  to Polish, English otherwise. Change it whenever you like; the choice is per-device and syncs
+  across open tabs.
+- **Your content stays yours.** Board names, cards, and Ideas notes are never translated — only the
+  app's own chrome is. (The Slack panel's AI buttons stay intentionally bilingual: explain in Polish,
+  reply in English.)
+
+| | English | Polski |
+|---|---|---|
+| Views | Boards · Ideas · News | Tablice · Pomysły · Wiadomości |
+| Timer | Focus · Break | Skupienie · Przerwa |
+| Settings tabs | Timer · Integrations · Appearance · Backup | Minutnik · Integracje · Wygląd · Kopia zapasowa |
 
 ---
 
