@@ -3,6 +3,7 @@
 
 import { BACKUP_DATA_KEYS, buildBackup, readBackup, backupFileName } from "./backup.js";
 import { fetchAllNews } from "./news.js";
+import { t, setLanguage, getLanguage, detectLang } from "./i18n.js";
 
 const EXT_ID = "aiegllbeihjbphiilgeifggceklfffkn"; // deterministic (from manifest "key")
 const OAUTH_PLACEHOLDER = "YOUR_CLIENT_ID.apps.googleusercontent.com";
@@ -21,6 +22,7 @@ const DEFAULT_SETTINGS = {
   lon: null,
   autoBackupFile: true,
   view: "boards",
+  language: detectLang(),
 };
 
 const $ = (s) => document.querySelector(s);
@@ -112,6 +114,7 @@ const el = {
   anthropicHint: $("#anthropicHint"),
   theme: $("#theme"),
   accent: $("#accentTheme"),
+  language: $("#language"),
   resetSettings: $("#resetSettingsBtn"),
   // backup & restore
   downloadBackup: $("#downloadBackupBtn"),
@@ -159,6 +162,10 @@ let ideasInited = false;                         // first-view lazy render guard
 let newsInited = false;                          // first-view lazy load guard
 let newsFilter = "all";                          // 'all' | 'hn' | 'devto'
 let currentView = "boards";                      // 'boards' | 'ideas' | 'news'
+// Last-known data caches so applyLanguage() can re-render pills/feeds in the new language.
+let lastSlackCounts = null;
+let lastGmailCache = null;
+let lastNewsErrors = null;
 
 const BOARD_ICONS = ["🏠","💼","🌿","📋","🎯","🚀","💡","📚","🛒","💪","🎨","✈️","💰","🍳","❤️","🔧","🌟","📦","🧠","🎸","📅","🎬","💬","💎","💊","🏦","🛠️","🌙"];
 
@@ -191,12 +198,12 @@ function renderTimer() {
   el.time.textContent = fmt(remaining);
   el.timerDot.style.background =
     timer.isRunning || timer.isPaused ? "" : ""; // CSS drives colour via body classes
-  el.startPause.setAttribute("aria-label", timer.isRunning ? "Pause" : "Start");
-  el.startPause.title = timer.isRunning ? "Pause (Space)" : timer.isPaused ? "Resume (Space)" : "Start (Space)";
-  $("#timer").title = timer.mode === "focus" ? "Focus session" : "Break";
+  el.startPause.setAttribute("aria-label", timer.isRunning ? t("timer.pause.aria") : t("timer.start.aria"));
+  el.startPause.title = timer.isRunning ? t("timer.pause.tip") : timer.isPaused ? t("timer.resume.tip") : t("timer.start.tip");
+  $("#timer").title = timer.mode === "focus" ? t("timer.focusSession") : t("timer.break");
 
   document.title = timer.isRunning
-    ? `${fmt(remaining)} · ${timer.mode === "focus" ? "Focus" : "Break"} — DevCockpit`
+    ? `${fmt(remaining)} · ${timer.mode === "focus" ? t("doc.focus") : t("doc.break")} — DevCockpit`
     : "DevCockpit";
 
   updateBadge(remaining);
@@ -288,7 +295,7 @@ function flashToast(text) {
   if (savedToastTimer) clearTimeout(savedToastTimer);
   savedToastTimer = setTimeout(() => savedToastEl.classList.remove("show"), 1100);
 }
-function flashSaved() { flashToast("Saved ✓"); }
+function flashSaved() { flashToast(t("toast.saved")); }
 
 // ----------------------------- pomodoro / app shortcuts -----------------------------
 
@@ -302,14 +309,14 @@ function toggleMute() {
     settings = { ...settings, sound: preMuteSound || "gong" };
   }
   chrome.storage.local.set({ settings });
-  flashToast(settings.sound === "none" ? "Chime muted 🔇" : "Chime on 🔔");
+  flashToast(settings.sound === "none" ? t("toast.chimeMuted") : t("toast.chimeOn"));
 }
 
 // A — toggle whether the next phase auto-starts when the current one ends.
 function toggleAutoStart() {
   settings = { ...settings, autoStartNext: !settings.autoStartNext };
   chrome.storage.local.set({ settings });
-  flashToast(settings.autoStartNext ? "Auto-start on ▶" : "Auto-start off ⏸");
+  flashToast(settings.autoStartNext ? t("toast.autostartOn") : t("toast.autostartOff"));
 }
 
 // T — cycle the theme: auto → dark → light → auto.
@@ -320,46 +327,49 @@ function cycleTheme() {
   settings = { ...settings, theme: next };
   chrome.storage.local.set({ settings });
   applyTheme();
-  flashToast(`Theme: ${next}`);
+  flashToast(t("toast.theme", { name: next }));
 }
 
 // ? — toggle a modal cheat-sheet listing every shortcut.
 const SHORTCUT_ROWS = [
-  ["1 / 2 / 3", "Switch view: Boards / Ideas / News"],
-  ["Space", "Start / pause timer"],
-  ["F", "Switch to a focus block"],
-  ["B", "Switch to a break"],
-  ["R", "Reset current phase"],
-  ["S", "Skip to next phase"],
-  ["+ / − (↑ / ↓)", "Extend / shorten by 1 min"],
-  ["M", "Mute / unmute chime"],
-  ["A", "Toggle auto-start next phase"],
-  ["T", "Cycle theme (auto / dark / light)"],
-  ["N", "Add a card to the Pinned list"],
-  ["C", "Delete the card under the cursor"],
-  ["Ctrl / ⌘ + S", "Save"],
-  ["?", "Show this cheat sheet"],
+  ["1 / 2 / 3", "sc.views"],
+  ["Space", "sc.startPause"],
+  ["F", "sc.focus"],
+  ["B", "sc.break"],
+  ["R", "sc.reset"],
+  ["S", "sc.skip"],
+  ["+ / − (↑ / ↓)", "sc.adjust"],
+  ["M", "sc.mute"],
+  ["A", "sc.autostart"],
+  ["T", "sc.theme"],
+  ["N", "sc.addCard"],
+  ["C", "sc.delCard"],
+  ["Ctrl / ⌘ + S", "sc.save"],
+  ["?", "sc.help"],
 ];
 let helpDialog = null;
+// Rebuilt on demand so it always reflects the current language.
 function buildShortcutHelp() {
   const dlg = document.createElement("dialog");
   dlg.className = "dlg shortcut-help";
   const rows = SHORTCUT_ROWS
-    .map(([k, d]) => `<li><kbd>${k}</kbd><span>${d}</span></li>`)
+    .map(([k, key]) => `<li><kbd>${k}</kbd><span>${t(key)}</span></li>`)
     .join("");
   dlg.innerHTML = `
     <form method="dialog" class="dlg-form">
-      <div class="dlg-head"><h2>Keyboard shortcuts</h2></div>
+      <div class="dlg-head"><h2>${t("sc.title")}</h2></div>
       <ul class="sc-list">${rows}</ul>
-      <div class="dlg-actions"><button class="btn" value="close">Close</button></div>
+      <div class="dlg-actions"><button class="btn" value="close">${t("sc.close")}</button></div>
     </form>`;
   dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
   document.body.appendChild(dlg);
   return dlg;
 }
 function toggleShortcutHelp() {
-  if (!helpDialog) helpDialog = buildShortcutHelp();
-  if (helpDialog.open) helpDialog.close(); else helpDialog.showModal();
+  // Rebuild each toggle so a language change between opens is reflected.
+  if (helpDialog) { helpDialog.remove(); helpDialog = null; }
+  helpDialog = buildShortcutHelp();
+  helpDialog.showModal();
 }
 
 // ----------------------------- settings -----------------------------
@@ -367,6 +377,41 @@ function toggleShortcutHelp() {
 function applyTheme() {
   el.root.dataset.theme = settings.theme || "auto";
   el.root.dataset.accent = settings.accent || "ember";
+}
+
+// Translate every statically-tagged element in the page from the active language.
+// Text nodes use [data-i18n]; attributes use their own data-i18n-* variants.
+function applyStaticI18n() {
+  document.querySelectorAll("[data-i18n]").forEach((n) => { n.textContent = t(n.dataset.i18n); });
+  document.querySelectorAll("[data-i18n-title]").forEach((n) => { n.title = t(n.dataset.i18nTitle); });
+  document.querySelectorAll("[data-i18n-aria]").forEach((n) => { n.setAttribute("aria-label", t(n.dataset.i18nAria)); });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((n) => { n.placeholder = t(n.dataset.i18nPlaceholder); });
+  el.root.lang = getLanguage();
+}
+
+// Switch the whole UI to settings.language live: re-translate static markup, then
+// re-run the dynamic renderers so generated strings pick up the new language too.
+function applyLanguage() {
+  setLanguage(settings.language);
+  applyStaticI18n();
+  buildIdeasTypeMenu();
+  renderTimer();
+  renderRail();
+  renderBoard();
+  renderGlobalList();
+  renderWidgetManager();
+  renderSlack(lastSlackCounts);
+  renderGmail(lastGmailCache);
+  loadWeather();
+  loadCalendar();
+  if (newsInited) renderNews(lastNewsErrors);
+  if (currentView === "ideas") renderIdeas();
+  // If the settings dialog is open, refresh the JS-rendered status lines/hints.
+  if (el.settingsDialog.open) {
+    renderCalSettings(); renderSlackSettings(); renderGmailSettings(); renderAnthropicSettings();
+  }
+  // If a detail drawer is open, re-title and reload it in the new language.
+  if (drawerSource) { el.drawerTitle.textContent = t(DRAWER_TITLE_KEYS[drawerSource] || "drawer.titleDefault"); loadDrawer(false); }
 }
 
 function openSettings() {
@@ -379,7 +424,8 @@ function openSettings() {
   el.cityInput.value = settings.city || "";
   el.theme.value = settings.theme;
   el.accent.value = settings.accent || "ember";
-  el.wxHint.textContent = settings.lat != null ? "" : "Type a city or use your location.";
+  el.language.value = settings.language || "en";
+  el.wxHint.textContent = settings.lat != null ? "" : t("wx.typeCity");
   renderCalSettings();
   el.slackWorkspace.value = slackCfg ? slackCfg.workspaceUrl || "" : "";
   el.slackToken.value = slackCfg ? slackCfg.token || "" : "";
@@ -424,6 +470,7 @@ function readSettingsForm() {
     notify: el.notify.checked,
     theme: el.theme.value,
     accent: el.accent.value,
+    language: el.language.value,
     autoBackupFile: el.autoBackupFile.checked,
   };
 }
@@ -431,9 +478,11 @@ function readSettingsForm() {
 el.settingsForm.addEventListener("submit", async (e) => {
   if (!(e.submitter && e.submitter.value === "save")) return;
   const prevLoc = `${settings.lat},${settings.lon}`;
+  const prevLang = settings.language;
   settings = { ...settings, ...readSettingsForm() };
   await chrome.storage.local.set({ settings });
   applyTheme();
+  if (settings.language !== prevLang) applyLanguage();
   send("settingsChanged");
   renderTimer();
   if (`${settings.lat},${settings.lon}` !== prevLoc && settings.lat != null) loadWeather(true);
@@ -446,12 +495,15 @@ el.resetSettings.addEventListener("click", () => {
   el.autoStartNext.checked = settings.autoStartNext; el.sound.value = settings.sound;
   el.volume.value = settings.volume; el.notify.checked = settings.notify; el.theme.value = settings.theme;
   el.accent.value = settings.accent; el.autoBackupFile.checked = settings.autoBackupFile !== false;
-  el.root.dataset.theme = settings.theme; el.root.dataset.accent = settings.accent;
+  el.language.value = settings.language; el.root.dataset.theme = settings.theme; el.root.dataset.accent = settings.accent;
+  applyLanguage();
 });
 
 el.previewSound.addEventListener("click", () => send("previewSound", { sound: el.sound.value, volume: parseFloat(el.volume.value) }));
 el.theme.addEventListener("change", () => (el.root.dataset.theme = el.theme.value));
 el.accent.addEventListener("change", () => (el.root.dataset.accent = el.accent.value));
+// Live language preview while the dialog is open (committed on Save like theme/accent).
+el.language.addEventListener("change", () => { settings = { ...settings, language: el.language.value }; applyLanguage(); });
 
 // ----------------------------- backup & restore -----------------------------
 
@@ -476,9 +528,9 @@ async function downloadBackup() {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    setBackupHint("Backup downloaded.", false);
+    setBackupHint(t("backup.downloaded"), false);
   } catch (e) {
-    setBackupHint("Couldn't create the backup file.", true);
+    setBackupHint(t("backup.createError"), true);
   }
 }
 
@@ -501,7 +553,7 @@ async function restoreFromFile(file) {
   try {
     obj = JSON.parse(await file.text());
   } catch (e) {
-    setBackupHint("That file isn't valid JSON.", true);
+    setBackupHint(t("backup.invalidJson"), true);
     return;
   }
   let parsed;
@@ -512,7 +564,7 @@ async function restoreFromFile(file) {
     return;
   }
   const boardCount = parsed.boards.length;
-  if (!confirm(`Restore ${boardCount} board${boardCount === 1 ? "" : "s"} from this backup?\n\nThis replaces your current boards and settings. A snapshot of the current state is kept so you can undo it.`)) {
+  if (!confirm(t("confirm.restore", { n: boardCount }))) {
     return;
   }
   await applyRestore(parsed);
@@ -522,22 +574,22 @@ async function renderBackupHistory() {
   const { backups } = await chrome.storage.local.get("backups");
   const list = Array.isArray(backups) ? backups : [];
   if (!list.length) {
-    el.backupHistory.innerHTML = `<p class="hint">No snapshots yet — they're taken automatically a couple of minutes after you make changes.</p>`;
+    el.backupHistory.innerHTML = `<p class="hint">${t("backup.noSnapshots")}</p>`;
     return;
   }
   const rows = list
     .map((s, i) => {
       const when = new Date(s.ts).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
       const n = Array.isArray(s.data && s.data.boards) ? s.data.boards.length : 0;
-      const tag = s.auto === false ? " · manual" : "";
+      const tag = s.auto === false ? ` · ${t("backup.manual")}` : "";
       return `<div class="backup-snap">
         <span class="backup-snap-when">${when}${tag}</span>
-        <span class="backup-snap-meta">${n} board${n === 1 ? "" : "s"}</span>
-        <button type="button" class="btn btn-ghost sm" data-snap="${i}">Restore</button>
+        <span class="backup-snap-meta">${t("backup.boards", { n })}</span>
+        <button type="button" class="btn btn-ghost sm" data-snap="${i}">${t("backup.restore")}</button>
       </div>`;
     })
     .join("");
-  el.backupHistory.innerHTML = `<div class="backup-history-head">Recent snapshots</div>${rows}`;
+  el.backupHistory.innerHTML = `<div class="backup-history-head">${t("backup.recentSnapshots")}</div>${rows}`;
 }
 
 el.downloadBackup.addEventListener("click", downloadBackup);
@@ -557,11 +609,11 @@ el.backupHistory.addEventListener("click", async (e) => {
   try {
     parsed = readBackup(buildBackup(snap.data));
   } catch (err) {
-    setBackupHint("That snapshot looks corrupted.", true);
+    setBackupHint(t("backup.snapCorrupted"), true);
     return;
   }
   const when = new Date(snap.ts).toLocaleString();
-  if (!confirm(`Roll back to the snapshot from ${when}?\n\nThis replaces your current boards and settings. The current state is snapshotted first, so you can undo it.`)) {
+  if (!confirm(t("confirm.rollback", { when }))) {
     return;
   }
   await applyRestore(parsed);
@@ -737,7 +789,7 @@ function renderRail() {
     btn.className = "rail-item" + (b.id === activeBoardId ? " active" : "");
     btn.dataset.boardId = b.id;
     btn.draggable = true;
-    btn.title = b.id === activeBoardId ? `${b.name} — click again to edit` : b.name;
+    btn.title = b.id === activeBoardId ? t("rail.editHint", { name: b.name }) : b.name;
     btn.setAttribute("aria-label", b.name);
     const ico = document.createElement("span");
     ico.className = "rail-icon";
@@ -750,8 +802,8 @@ function renderRail() {
   });
   const add = document.createElement("button");
   add.className = "rail-item rail-add";
-  add.title = "New board";
-  add.setAttribute("aria-label", "New board");
+  add.title = t("rail.newBoard");
+  add.setAttribute("aria-label", t("rail.newBoard"));
   add.textContent = "+";
   add.addEventListener("click", () => openBoardEditor(null));
   el.rail.appendChild(add);
@@ -802,7 +854,7 @@ function renderIconPicker() {
 function openBoardEditor(id) {
   editingBoard = id;
   const b = id ? boards.find((x) => x.id === id) : null;
-  el.boardDialogTitle.textContent = b ? "Edit board" : "New board";
+  el.boardDialogTitle.textContent = b ? t("board.editTitle") : t("board.newTitle");
   el.boardName.value = b ? b.name : "";
   pickedIcon = b ? (b.icon || "📋") : "📋";
   el.deleteBoard.hidden = !b || boards.length <= 1;
@@ -835,7 +887,7 @@ el.deleteBoard.addEventListener("click", () => {
   const b = boards.find((x) => x.id === editingBoard);
   if (!b) return;
   const cardCount = b.columns.reduce((n, c) => n + c.taskIds.length, 0);
-  if (cardCount > 0 && !confirm(`Delete board "${b.name}" and its ${cardCount} card(s)?`)) return;
+  if (cardCount > 0 && !confirm(t("confirm.deleteBoard", { name: b.name, n: cardCount }))) return;
   boards = boards.filter((x) => x.id !== editingBoard);
   if (activeBoardId === editingBoard) { activeBoardId = boards[0].id; syncActiveBoard(); }
   saveBoard();
@@ -850,7 +902,7 @@ function renderBoard() {
   board.columns.forEach((col) => el.board.appendChild(renderColumn(col)));
   const add = document.createElement("button");
   add.className = "column add-column-btn";
-  add.textContent = "+ Add list";
+  add.textContent = t("board.addList");
   add.addEventListener("click", addColumn);
   el.board.appendChild(add);
 }
@@ -895,7 +947,7 @@ function renderColumn(col) {
   // drag handle — reorders the whole list among its siblings
   const grip = document.createElement("span");
   grip.className = "column-grip"; grip.textContent = "⠿";
-  grip.title = "Drag to reorder list"; grip.setAttribute("aria-label", "Drag to reorder list");
+  grip.title = t("column.reorder"); grip.setAttribute("aria-label", t("column.reorder"));
   grip.draggable = true;
   grip.addEventListener("dragstart", (e) => {
     isDragging = true; wrap.classList.add("column-dragging");
@@ -907,11 +959,11 @@ function renderColumn(col) {
   const title = document.createElement("input");
   title.className = "column-title";
   title.value = col.title;
-  title.setAttribute("aria-label", "List name");
+  title.setAttribute("aria-label", t("column.nameAria"));
   title.addEventListener("focus", () => (isEditingBoard = true));
   title.addEventListener("blur", () => {
     isEditingBoard = false;
-    const v = title.value.trim() || "Untitled";
+    const v = title.value.trim() || t("column.untitled");
     title.value = v;
     if (v !== col.title) { col.title = v; saveBoard(); }
   });
@@ -922,13 +974,13 @@ function renderColumn(col) {
   count.textContent = String(col.taskIds.length);
 
   const del = document.createElement("button");
-  del.className = "column-del"; del.textContent = "✕"; del.title = "Delete list";
+  del.className = "column-del"; del.textContent = "✕"; del.title = t("column.delete");
   del.addEventListener("click", () => deleteColumn(col.id));
 
   // a button to move the whole list to another board
   const move = document.createElement("button");
-  move.className = "column-move"; move.textContent = "⤴"; move.title = "Move list to another board";
-  move.setAttribute("aria-label", "Move list to another board");
+  move.className = "column-move"; move.textContent = "⤴"; move.title = t("column.move");
+  move.setAttribute("aria-label", t("column.move"));
   move.addEventListener("click", (e) => { e.stopPropagation(); openMoveListMenu(col.id, move); });
 
   head.append(grip, title, count, move, del);
@@ -940,7 +992,7 @@ function renderColumn(col) {
   wireDropTarget(list);
 
   const addBtn = document.createElement("button");
-  addBtn.className = "add-card"; addBtn.textContent = "+ Add a card";
+  addBtn.className = "add-card"; addBtn.textContent = t("card.add");
   addBtn.addEventListener("click", () => startAddCard(col, board.tasks, saveBoard, list, addBtn));
 
   wrap.append(head, list, addBtn);
@@ -1026,7 +1078,7 @@ function startAddCard(container, tasksMap, save, list, addBtn) {
   isAddingCard = true;
   addBtn.style.display = "none";
   const input = document.createElement("textarea");
-  input.className = "add-card-input"; input.rows = 2; input.placeholder = "What needs doing?";
+  input.className = "add-card-input"; input.rows = 2; input.placeholder = t("card.placeholder");
   list.after(input); input.focus();
 
   let teardown = false;
@@ -1068,14 +1120,14 @@ function startAddCard(container, tasksMap, save, list, addBtn) {
 function deleteColumn(columnId) {
   const col = board.columns.find((c) => c.id === columnId);
   if (!col) return;
-  if (col.taskIds.length > 0 && !confirm(`Delete "${col.title}" and its ${col.taskIds.length} card(s)?`)) return;
+  if (col.taskIds.length > 0 && !confirm(t("confirm.deleteList", { name: col.title, n: col.taskIds.length }))) return;
   col.taskIds.forEach((tid) => delete board.tasks[tid]);
   board.columns = board.columns.filter((c) => c.id !== columnId);
   saveBoard(); renderBoard();
 }
 
 function addColumn() {
-  const col = { id: newId(), title: "New list", taskIds: [] };
+  const col = { id: newId(), title: t("column.newList"), taskIds: [] };
   board.columns.push(col); saveBoard(); renderBoard();
   const last = el.board.querySelector(".column[data-column-id]:last-of-type .column-title");
   if (last) { last.focus(); last.select(); }
@@ -1093,13 +1145,13 @@ function openMoveListMenu(columnId, anchor) {
   menu.className = "move-menu";
   const head = document.createElement("div");
   head.className = "move-menu-head";
-  head.textContent = "Move list to…";
+  head.textContent = t("move.head");
   menu.appendChild(head);
 
   if (!others.length) {
     const empty = document.createElement("div");
     empty.className = "move-menu-empty";
-    empty.textContent = "No other boards yet.";
+    empty.textContent = t("move.empty");
     menu.appendChild(empty);
   } else {
     others.forEach((b) => {
@@ -1176,13 +1228,17 @@ function renderGlobalList() {
   title.innerHTML = `<span aria-hidden="true">📌</span>`;
   const label = document.createElement("input");
   label.className = "column-title global-list-name";
-  label.value = globalList.title || "Pinned";
-  label.setAttribute("aria-label", "Pinned list name");
+  // "Pinned" is the stored default sentinel; show it translated and keep it
+  // following the language, while a user-chosen name persists verbatim.
+  const isDefaultTitle = (v) => !v || v === "Pinned" || v === t("pinned.title");
+  label.value = isDefaultTitle(globalList.title) ? t("pinned.title") : globalList.title;
+  label.setAttribute("aria-label", t("pinned.nameAria"));
   label.addEventListener("focus", () => (isEditingBoard = true));
   label.addEventListener("blur", () => {
     isEditingBoard = false;
-    const v = label.value.trim() || "Pinned";
-    label.value = v;
+    const typed = label.value.trim();
+    const v = isDefaultTitle(typed) ? "Pinned" : typed;
+    label.value = v === "Pinned" ? t("pinned.title") : v;
     if (v !== globalList.title) { globalList.title = v; saveGlobalList(); }
   });
   label.addEventListener("keydown", (e) => { if (e.key === "Enter") label.blur(); });
@@ -1199,7 +1255,7 @@ function renderGlobalList() {
   wireDropTarget(list);
 
   const addBtn = document.createElement("button");
-  addBtn.className = "add-card"; addBtn.textContent = "+ Add a card";
+  addBtn.className = "add-card"; addBtn.textContent = t("card.add");
   addBtn.addEventListener("click", () => startAddCard(globalList, globalList.tasks, saveGlobalList, list, addBtn));
 
   // Lower third: the widget tray, rendered from the saved layout (see buildWidgetTray).
@@ -1257,7 +1313,7 @@ function buildWorkClockWidget() {
   const g2 = clockPoint(50, 50, WORK_BAND_R, aStart + sweep);
 
   wrap.innerHTML = `
-    <svg class="wc-face" viewBox="0 0 100 100" role="img" aria-label="Working hours — time until 5 PM">
+    <svg class="wc-face" viewBox="0 0 100 100" role="img" aria-label="${t("workclock.aria")}">
       <defs>
         <linearGradient id="wcGrad" gradientUnits="userSpaceOnUse"
           x1="${g1.x.toFixed(2)}" y1="${g1.y.toFixed(2)}" x2="${g2.x.toFixed(2)}" y2="${g2.y.toFixed(2)}">
@@ -1276,7 +1332,7 @@ function buildWorkClockWidget() {
       <line id="wcSec" class="wc-hand wc-sec" x1="50" y1="54" x2="50" y2="14" stroke-linecap="round" />
       <circle cx="50" cy="50" r="2.2" class="wc-pivot" />
     </svg>
-    <div class="wc-readout"><span id="wcCountdown" class="wc-countdown">—</span><span class="wc-sub">to 5 PM</span></div>
+    <div class="wc-readout"><span id="wcCountdown" class="wc-countdown">—</span><span class="wc-sub">${t("workclock.to5")}</span></div>
   `;
 
   // Keep a single ticking timer alive; it re-targets whatever clock DOM currently exists.
@@ -1326,7 +1382,7 @@ function updateWorkClock() {
   const hrs = Math.floor(diffMin / 60);
   const mins = Math.floor(diffMin % 60);
   if (countdown) countdown.textContent = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
-  if (sub) sub.textContent = "to 5 PM";
+  if (sub) sub.textContent = t("workclock.to5");
 }
 
 // ----------------------------- soundscape widget -----------------------------
@@ -1335,12 +1391,13 @@ function updateWorkClock() {
 // Each scene is a small generative graph; playback is a DOM-independent singleton
 // so it keeps going while you switch boards and the widget re-renders.
 
+// Scene labels are looked up via t("scene.<key>") at render time.
 const MUSIC_SCENES = [
-  { key: "lofi",    label: "Lofi" },
-  { key: "ambient", label: "Ambient" },
-  { key: "piano",   label: "Piano" },
-  { key: "nature",  label: "Nature" },
-  { key: "rain",    label: "Rain" },
+  { key: "lofi" },
+  { key: "ambient" },
+  { key: "piano" },
+  { key: "nature" },
+  { key: "rain" },
 ];
 
 const Soundscape = (() => {
@@ -1667,7 +1724,7 @@ function fallbackToSynth(scene) {
   if (activeScene !== scene) return;
   activeEngine = "synth";
   Soundscape.play(scene);
-  flashToast("Stream unavailable — playing offline mix");
+  flashToast(t("toast.streamUnavailable"));
   refreshMusicUI();
 }
 
@@ -1683,7 +1740,7 @@ function buildMusicWidget() {
       <path class="mw-bg-w3" d="M0 87 C 16 80 36 92 54 85 S 86 79 100 86 L100 100 L0 100 Z" />
     </svg>
     <div class="mw-head">
-      <span class="mw-title"><span aria-hidden="true">🎵</span> Soundscapes</span>
+      <span class="mw-title"><span aria-hidden="true">🎵</span> ${t("widget.soundscapes")}</span>
       <span class="mw-eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
     </div>
     <div class="mw-grid"></div>
@@ -1691,9 +1748,10 @@ function buildMusicWidget() {
   const grid = wrap.querySelector(".mw-grid");
   MUSIC_SCENES.forEach((s) => {
     const chip = document.createElement("button");
+    const label = t(`scene.${s.key}`);
     chip.type = "button"; chip.className = "mw-chip"; chip.dataset.scene = s.key;
-    chip.setAttribute("aria-label", `Play ${s.label}`);
-    chip.innerHTML = `<span class="mw-chip-label">${s.label}</span>`;
+    chip.setAttribute("aria-label", t("scene.play", { name: label }));
+    chip.innerHTML = `<span class="mw-chip-label">${label}</span>`;
     chip.addEventListener("click", () => {
       musicScene = s.key;
       if (musicCurrent() === s.key) {
@@ -1731,9 +1789,10 @@ function syncMusicWidget(root) {
 // which slot is data, persisted in `widgetLayout` and edited via the manager modal, so
 // new widgets only need a registry entry to become placeable.
 
+// `nameKey` is resolved via t() at render time so widget names follow the language.
 const WIDGET_REGISTRY = {
-  workclock:   { id: "workclock",   name: "Work clock",  build: buildWorkClockWidget },
-  soundscapes: { id: "soundscapes", name: "Soundscapes", build: buildMusicWidget },
+  workclock:   { id: "workclock",   nameKey: "widget.workclock",   build: buildWorkClockWidget },
+  soundscapes: { id: "soundscapes", nameKey: "widget.soundscapes", build: buildMusicWidget },
 };
 const WIDGET_SLOTS = 4;
 const DEFAULT_WIDGET_LAYOUT = ["workclock", "soundscapes", null, null];
@@ -1761,10 +1820,10 @@ function buildWidgetTray() {
 
   const head = document.createElement("div");
   head.className = "widget-tray-head";
-  head.innerHTML = `<span class="widget-tray-title">Widgets</span>`;
+  head.innerHTML = `<span class="widget-tray-title">${t("widget.tray")}</span>`;
   const manage = document.createElement("button");
   manage.type = "button"; manage.className = "widget-tray-manage";
-  manage.textContent = "⚙"; manage.title = "Manage widgets"; manage.setAttribute("aria-label", "Manage widgets");
+  manage.textContent = "⚙"; manage.title = t("widget.manage"); manage.setAttribute("aria-label", t("widget.manage"));
   manage.addEventListener("click", openWidgetManager);
   head.appendChild(manage);
 
@@ -1780,7 +1839,7 @@ function buildWidgetTray() {
       slot.appendChild(w.build());
     } else {
       slot.classList.add("widget-empty");
-      slot.innerHTML = `<span class="widget-empty-mark" aria-hidden="true">+</span><span class="widget-empty-label">Add widget</span>`;
+      slot.innerHTML = `<span class="widget-empty-mark" aria-hidden="true">+</span><span class="widget-empty-label">${t("widget.addWidget")}</span>`;
       slot.addEventListener("click", openWidgetManager);
     }
     grid.appendChild(slot);
@@ -1809,11 +1868,11 @@ function renderWidgetManager() {
     const w = id && WIDGET_REGISTRY[id];
     return `<li class="wm-slot">
       <span class="wm-slot-n">${i + 1}</span>
-      <span class="wm-slot-name ${w ? "" : "is-empty"}">${w ? w.name : "Empty"}</span>
+      <span class="wm-slot-name ${w ? "" : "is-empty"}">${w ? t(w.nameKey) : t("widget.empty")}</span>
       <span class="wm-slot-actions">
-        <button type="button" class="wm-mv" data-i="${i}" data-dir="-1" ${i === 0 ? "disabled" : ""} title="Move up" aria-label="Move up">↑</button>
-        <button type="button" class="wm-mv" data-i="${i}" data-dir="1" ${i === WIDGET_SLOTS - 1 ? "disabled" : ""} title="Move down" aria-label="Move down">↓</button>
-        ${w ? `<button type="button" class="wm-rm" data-i="${i}" title="Remove" aria-label="Remove">✕</button>` : `<span class="wm-rm-spacer"></span>`}
+        <button type="button" class="wm-mv" data-i="${i}" data-dir="-1" ${i === 0 ? "disabled" : ""} title="${t("widget.moveUp")}" aria-label="${t("widget.moveUp")}">↑</button>
+        <button type="button" class="wm-mv" data-i="${i}" data-dir="1" ${i === WIDGET_SLOTS - 1 ? "disabled" : ""} title="${t("widget.moveDown")}" aria-label="${t("widget.moveDown")}">↓</button>
+        ${w ? `<button type="button" class="wm-rm" data-i="${i}" title="${t("widget.remove")}" aria-label="${t("widget.remove")}">✕</button>` : `<span class="wm-rm-spacer"></span>`}
       </span>
     </li>`;
   }).join("");
@@ -1821,16 +1880,16 @@ function renderWidgetManager() {
   const available = Object.values(WIDGET_REGISTRY).filter((w) => !placed.has(w.id));
   const hasEmpty = widgetLayout.some((x) => !x);
   const availHtml = available.length
-    ? available.map((w) => `<li class="wm-avail"><span>${w.name}</span><button type="button" class="wm-add" data-id="${w.id}" ${hasEmpty ? "" : "disabled"} title="${hasEmpty ? "Add to first empty slot" : "No empty slot"}">Add</button></li>`).join("")
-    : `<li class="wm-note">All widgets are placed.</li>`;
+    ? available.map((w) => `<li class="wm-avail"><span>${t(w.nameKey)}</span><button type="button" class="wm-add" data-id="${w.id}" ${hasEmpty ? "" : "disabled"} title="${hasEmpty ? t("widget.addFirstEmpty") : t("widget.noEmptySlot")}">${t("widget.add")}</button></li>`).join("")
+    : `<li class="wm-note">${t("widget.allPlaced")}</li>`;
   dlg.innerHTML = `
     <form method="dialog" class="dlg-form">
-      <div class="dlg-head"><h2>Manage widgets</h2></div>
-      <div class="wm-section">Slots</div>
+      <div class="dlg-head"><h2>${t("widget.manage")}</h2></div>
+      <div class="wm-section">${t("widget.slots")}</div>
       <ul class="wm-list">${slotsHtml}</ul>
-      <div class="wm-section">Available</div>
+      <div class="wm-section">${t("widget.available")}</div>
       <ul class="wm-list">${availHtml}</ul>
-      <div class="dlg-actions"><button class="btn" value="close">Done</button></div>
+      <div class="dlg-actions"><button class="btn" value="close">${t("widget.done")}</button></div>
     </form>`;
   dlg.querySelectorAll(".wm-mv").forEach((b) => b.addEventListener("click", (e) => { e.preventDefault(); moveWidget(+b.dataset.i, +b.dataset.dir); }));
   dlg.querySelectorAll(".wm-rm").forEach((b) => b.addEventListener("click", (e) => { e.preventDefault(); removeWidgetAt(+b.dataset.i); }));
@@ -1903,12 +1962,12 @@ document.addEventListener("click", (e) => {
 // ----------------------------- detail drawer -----------------------------
 
 let drawerSource = null; // 'cal' | 'slack' | 'gmail' | null
-const DRAWER_TITLES = { cal: "Calendar", slack: "Slack", gmail: "Gmail" };
+const DRAWER_TITLE_KEYS = { cal: "drawer.cal", slack: "slack.label", gmail: "drawer.gmail" };
 
 function openDrawer(source) {
   drawerSource = source;
   closeWxPopover();
-  el.drawerTitle.textContent = DRAWER_TITLES[source] || "Details";
+  el.drawerTitle.textContent = t(DRAWER_TITLE_KEYS[source] || "drawer.titleDefault");
   el.detailDrawer.hidden = false;
   el.drawerOverlay.hidden = false;
   el.detailDrawer.setAttribute("aria-hidden", "false");
@@ -1949,8 +2008,8 @@ document.addEventListener("keydown", (e) => {
 // ---- calendar drawer ----
 async function loadCalendarDrawer(force) {
   if (drawerSource !== "cal") return;
-  if (!calConfigured() || !calConnected) { drawerMsg("Connect Google Calendar in settings to see your events."); return; }
-  drawerMsg("Loading…", "drawer-loading");
+  if (!calConfigured() || !calConnected) { drawerMsg(t("drawer.connectCal")); return; }
+  drawerMsg(t("drawer.loading"), "drawer-loading");
   try {
     const cache = (await chrome.storage.local.get("calCache")).calCache;
     const fresh = cache && Date.now() - cache.ts < 5 * 60 * 1000;
@@ -1965,7 +2024,7 @@ async function loadCalendarDrawer(force) {
     }
     if (drawerSource === "cal") renderCalendarDrawer(events);
   } catch (e) {
-    if (drawerSource === "cal") drawerMsg("Couldn't load your calendar. Try reconnecting in settings.");
+    if (drawerSource === "cal") drawerMsg(t("drawer.calError"));
   }
 }
 function renderCalendarDrawer(events) {
@@ -1976,8 +2035,8 @@ function renderCalendarDrawer(events) {
   const todays = events.filter((e) => e.startMs >= todayStart && e.startMs < tomorrowStart);
   const tomorrows = events.filter((e) => e.startMs >= tomorrowStart && e.startMs < dayAfterStart);
   el.drawerBody.innerHTML = "";
-  el.drawerBody.appendChild(renderCalDrawerSection("Today", todays, now));
-  el.drawerBody.appendChild(renderCalDrawerSection("Tomorrow", tomorrows, now));
+  el.drawerBody.appendChild(renderCalDrawerSection(t("cal.today"), todays, now));
+  el.drawerBody.appendChild(renderCalDrawerSection(t("cal.tomorrow"), tomorrows, now));
 }
 function renderCalDrawerSection(label, list, now) {
   const wrap = document.createElement("div");
@@ -1987,7 +2046,7 @@ function renderCalDrawerSection(label, list, now) {
   wrap.appendChild(head);
   if (!list.length) {
     const empty = document.createElement("div");
-    empty.className = "cal-empty"; empty.textContent = "Nothing scheduled.";
+    empty.className = "cal-empty"; empty.textContent = t("cal.nothing");
     wrap.appendChild(empty);
     return wrap;
   }
@@ -1997,7 +2056,7 @@ function renderCalDrawerSection(label, list, now) {
     if (!e.allDay && e.startMs <= now && e.endMs > now) row.classList.add("now");
     else if (e.endMs <= now) row.classList.add("past");
     const time = document.createElement("div"); time.className = "cal-time";
-    time.textContent = e.allDay ? "all-day" : `${fmtT(e.startMs)}–${fmtT(e.endMs)}`;
+    time.textContent = e.allDay ? t("cal.allDay") : `${fmtT(e.startMs)}–${fmtT(e.endMs)}`;
     const body = document.createElement("div");
     const t = document.createElement("div"); t.className = "cal-title"; t.textContent = e.title; body.appendChild(t);
     const det = document.createElement("div"); det.className = "cal-ev-detail";
@@ -2014,12 +2073,12 @@ function renderCalDrawerSection(label, list, now) {
     }
     if (e.videoLink) {
       const j = document.createElement("a");
-      j.href = e.videoLink; j.target = "_blank"; j.rel = "noopener"; j.textContent = "Join video call ↗";
+      j.href = e.videoLink; j.target = "_blank"; j.rel = "noopener"; j.textContent = t("cal.joinVideo");
       det.appendChild(j);
     }
     if (e.htmlLink) {
       const o = document.createElement("a");
-      o.href = e.htmlLink; o.target = "_blank"; o.rel = "noopener"; o.textContent = "Open in Calendar ↗";
+      o.href = e.htmlLink; o.target = "_blank"; o.rel = "noopener"; o.textContent = t("cal.openInCal");
       det.appendChild(o);
     }
     if (det.childNodes.length) body.appendChild(det);
@@ -2067,7 +2126,7 @@ async function gmailFetchMessages(max = 20) {
         results.push({
           id: m.id,
           from: gmailParseFrom(h("from")),
-          subject: h("subject") || "(no subject)",
+          subject: h("subject") || t("gmail.noSubject"),
           date: h("date"),
           dateMs: m.internalDate ? Number(m.internalDate) : 0,
           unread: Array.isArray(m.labelIds) && m.labelIds.includes("UNREAD"),
@@ -2081,8 +2140,8 @@ async function gmailFetchMessages(max = 20) {
 }
 async function loadGmailDrawer(force) {
   if (drawerSource !== "gmail") return;
-  if (!gmailConfigured() || !gmailConnected) { drawerMsg("Connect Gmail in settings to see your inbox."); return; }
-  drawerMsg("Loading…", "drawer-loading");
+  if (!gmailConfigured() || !gmailConnected) { drawerMsg(t("drawer.connectGmail")); return; }
+  drawerMsg(t("drawer.loading"), "drawer-loading");
   try {
     const cache = (await chrome.storage.local.get("gmailMsgCache")).gmailMsgCache;
     const fresh = cache && Date.now() - cache.ts < 2 * 60 * 1000;
@@ -2094,7 +2153,7 @@ async function loadGmailDrawer(force) {
     }
     if (drawerSource === "gmail") renderGmailDrawer(messages);
   } catch (e) {
-    if (drawerSource === "gmail") drawerMsg("Couldn't load Gmail. Try reconnecting in settings.");
+    if (drawerSource === "gmail") drawerMsg(t("drawer.gmailError"));
   }
 }
 function fmtMailDate(ms, raw) {
@@ -2103,13 +2162,13 @@ function fmtMailDate(ms, raw) {
 }
 function renderGmailDrawer(messages) {
   el.drawerBody.innerHTML = "";
-  if (!messages || !messages.length) { drawerMsg("Inbox is empty."); return; }
+  if (!messages || !messages.length) { drawerMsg(t("gmail.inboxEmpty")); return; }
   messages.forEach((m) => {
     const a = document.createElement("a");
     a.className = "gm-msg" + (m.unread ? " unread" : "");
     a.href = `https://mail.google.com/mail/u/0/#all/${m.id}`;
     a.target = "_blank"; a.rel = "noopener";
-    const from = document.createElement("div"); from.className = "gm-from"; from.textContent = m.from || "(unknown sender)";
+    const from = document.createElement("div"); from.className = "gm-from"; from.textContent = m.from || t("gmail.unknownSender");
     const subj = document.createElement("div"); subj.className = "gm-subj"; subj.textContent = m.subject;
     const date = document.createElement("div"); date.className = "gm-date"; date.textContent = fmtMailDate(m.dateMs, m.date);
     a.append(from, subj, date);
@@ -2131,8 +2190,8 @@ function fmtSlackTs(ts) {
 }
 async function loadSlackDrawer() {
   if (drawerSource !== "slack") return;
-  if (!slackConfigured()) { drawerMsg("Connect Slack in settings to see your unread messages."); return; }
-  drawerMsg("Loading messages…", "drawer-loading");
+  if (!slackConfigured()) { drawerMsg(t("drawer.connectSlack")); return; }
+  drawerMsg(t("slack.loadingMessages"), "drawer-loading");
   const res = await new Promise((resolve) => {
     try { chrome.runtime.sendMessage({ type: "slackUnread" }, (r) => resolve(r || { ok: false, error: "send_failed" })); }
     catch (e) { resolve({ ok: false, error: "send_failed" }); }
@@ -2140,15 +2199,15 @@ async function loadSlackDrawer() {
   if (drawerSource !== "slack") return;
   if (!res || !res.ok) {
     drawerMsg(res && res.error === "auth"
-      ? "Slack session expired — re-paste your token & cookie in settings."
-      : "Couldn't load Slack messages. Try the refresh button.");
+      ? t("slack.sessionExpired")
+      : t("slack.loadError"));
     return;
   }
   renderSlackDrawer(res.conversations || []);
 }
 function renderSlackDrawer(conversations) {
   el.drawerBody.innerHTML = "";
-  if (!conversations.length) { drawerMsg("No unread Slack messages 🎉"); return; }
+  if (!conversations.length) { drawerMsg(t("slack.noUnread")); return; }
   const aiReady = anthropicReady();
   conversations.forEach((conv) => {
     const box = document.createElement("div"); box.className = "sk-conv";
@@ -2161,7 +2220,7 @@ function renderSlackDrawer(conversations) {
     }
     box.appendChild(head);
     if (!conv.messages.length) {
-      const e = document.createElement("div"); e.className = "sk-msg-text"; e.textContent = "(no readable messages)";
+      const e = document.createElement("div"); e.className = "sk-msg-text"; e.textContent = t("slack.noReadable");
       box.appendChild(e);
     }
     conv.messages.forEach((m) => box.appendChild(renderSlackMessage(conv, m, aiReady)));
@@ -2268,13 +2327,14 @@ async function fetchWeather(lat, lon) {
 
 function renderWeatherIdle(text) {
   el.wxIcon.textContent = "··";
-  el.wxPillText.textContent = text || "Weather";
-  el.wxDetail.innerHTML = `<div class="wx-empty">${text || "Set your city in settings."}</div>`;
+  el.wxPillText.textContent = text || t("wx.weather");
+  el.wxDetail.innerHTML = `<div class="wx-empty">${text || t("wx.setCity")}</div>`;
 }
 
 function renderWeather(data, locName) {
   const c = data.current;
-  const [icon, label] = wmo(c.weather_code);
+  const [icon, fallbackLabel] = wmo(c.weather_code);
+  const label = WMO[c.weather_code] ? t(`wx.code.${c.weather_code}`) : fallbackLabel;
   const temp = Math.round(c.temperature_2m);
   const hi = Math.round(data.daily.temperature_2m_max[0]);
   const lo = Math.round(data.daily.temperature_2m_min[0]);
@@ -2284,15 +2344,15 @@ function renderWeather(data, locName) {
     <div class="wx-now"><span style="font-size:30px">${icon}</span>
       <div><div class="wx-temp">${temp}°C</div><div class="wx-cond">${label}</div></div></div>
     <div class="wx-grid">
-      <span>Feels <b>${Math.round(c.apparent_temperature)}°</b></span>
-      <span>High <b>${hi}°</b></span><span>Low <b>${lo}°</b></span>
-      <span>Wind <b>${Math.round(c.wind_speed_10m)} km/h</b></span>
+      <span>${t("wx.feels")} <b>${Math.round(c.apparent_temperature)}°</b></span>
+      <span>${t("wx.high")} <b>${hi}°</b></span><span>${t("wx.low")} <b>${lo}°</b></span>
+      <span>${t("wx.wind")} <b>${Math.round(c.wind_speed_10m)} km/h</b></span>
     </div>
-    <div class="wx-loc">${locName || ""} · updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}</div>`;
+    <div class="wx-loc">${locName || ""} · ${t("wx.updated")} ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}</div>`;
 }
 
 async function loadWeather(force = false) {
-  if (settings.lat == null || settings.lon == null) { renderWeatherIdle("Set location"); return; }
+  if (settings.lat == null || settings.lon == null) { renderWeatherIdle(t("wx.setLocation")); return; }
   try {
     const cache = (await chrome.storage.local.get("weatherCache")).weatherCache;
     const fresh = cache && Date.now() - cache.ts < 30 * 60 * 1000 && cache.lat === settings.lat;
@@ -2300,35 +2360,35 @@ async function loadWeather(force = false) {
     const data = await fetchWeather(settings.lat, settings.lon);
     await chrome.storage.local.set({ weatherCache: { data, ts: Date.now(), lat: settings.lat, name: settings.city } });
     renderWeather(data, settings.city);
-  } catch (e) { renderWeatherIdle("Weather —"); }
+  } catch (e) { renderWeatherIdle(t("wx.dash")); }
 }
 
 el.cityInput.addEventListener("change", async () => {
   const city = el.cityInput.value.trim();
   if (!city) return;
-  el.wxHint.textContent = "Looking up…";
+  el.wxHint.textContent = t("wx.lookingUp");
   try {
     const g = await geocodeCity(city);
     settings = { ...settings, city: g.name, lat: g.lat, lon: g.lon };
     el.cityInput.value = g.name;
     await chrome.storage.local.set({ settings });
-    el.wxHint.textContent = `Set to ${g.name}.`;
+    el.wxHint.textContent = t("wx.setTo", { name: g.name });
     loadWeather(true);
-  } catch (e) { el.wxHint.textContent = "City not found — try another spelling."; }
+  } catch (e) { el.wxHint.textContent = t("wx.notFound"); }
 });
 
 el.useLocation.addEventListener("click", () => {
-  el.wxHint.textContent = "Requesting location…";
-  if (!navigator.geolocation) { el.wxHint.textContent = "Geolocation unavailable."; return; }
+  el.wxHint.textContent = t("wx.requesting");
+  if (!navigator.geolocation) { el.wxHint.textContent = t("wx.geoUnavailable"); return; }
   navigator.geolocation.getCurrentPosition(
     async (pos) => {
-      settings = { ...settings, city: "Current location", lat: +pos.coords.latitude.toFixed(4), lon: +pos.coords.longitude.toFixed(4) };
-      el.cityInput.value = "Current location";
+      settings = { ...settings, city: t("wx.currentLocation"), lat: +pos.coords.latitude.toFixed(4), lon: +pos.coords.longitude.toFixed(4) };
+      el.cityInput.value = t("wx.currentLocation");
       await chrome.storage.local.set({ settings });
-      el.wxHint.textContent = "Using your current location.";
+      el.wxHint.textContent = t("wx.usingLocation");
       loadWeather(true);
     },
-    () => (el.wxHint.textContent = "Location permission denied."),
+    () => (el.wxHint.textContent = t("wx.permDenied")),
     { timeout: 8000 }
   );
 });
@@ -2389,7 +2449,7 @@ async function calFetchEvents(token) {
         if (v) videoLink = v.uri || "";
       }
       return {
-        title: e.summary || "(no title)", allDay, startMs, endMs,
+        title: e.summary || t("cal.noTitle"), allDay, startMs, endMs,
         location: e.location || "", description: e.description || "",
         attendees, videoLink, htmlLink: e.htmlLink || "",
       };
@@ -2414,19 +2474,19 @@ function renderCalendar(events) {
   const upcoming = todays.filter((e) => !e.allDay && e.startMs > now);
   el.calPill.classList.remove("now");
   if (ongoing) {
-    el.calPillText.textContent = `${ongoing.title} · to ${fmtT(ongoing.endMs)}`;
+    el.calPillText.textContent = t("cal.ongoing", { title: ongoing.title, time: fmtT(ongoing.endMs) });
     el.calPill.classList.add("now");
   } else if (upcoming.length) {
-    el.calPillText.textContent = `${fmtT(upcoming[0].startMs)} · ${upcoming[0].title}`;
+    el.calPillText.textContent = t("cal.upcoming", { time: fmtT(upcoming[0].startMs), title: upcoming[0].title });
   } else if (tomorrows.length) {
     const first = tomorrows.find((e) => !e.allDay) || tomorrows[0];
     el.calPillText.textContent = first.allDay
-      ? `Tomorrow · ${first.title}`
-      : `Tomorrow ${fmtT(first.startMs)} · ${first.title}`;
+      ? t("cal.tomorrowAllDay", { title: first.title })
+      : t("cal.tomorrowTimed", { time: fmtT(first.startMs), title: first.title });
   } else if (todays.length) {
-    el.calPillText.textContent = "Done for today";
+    el.calPillText.textContent = t("cal.doneToday");
   } else {
-    el.calPillText.textContent = "No meetings";
+    el.calPillText.textContent = t("cal.noMeetings");
   }
 }
 
@@ -2436,8 +2496,8 @@ function renderCalIdle(text) {
 }
 
 async function loadCalendar(force = false) {
-  if (!calConfigured()) { renderCalIdle("Calendar", "Connect in settings to see today's meetings."); return; }
-  if (!calConnected) { renderCalIdle("Connect calendar", "Connect in settings to see today's meetings."); return; }
+  if (!calConfigured()) { renderCalIdle(t("cal.label")); return; }
+  if (!calConnected) { renderCalIdle(t("cal.connect")); return; }
   try {
     const cache = (await chrome.storage.local.get("calCache")).calCache;
     const fresh = cache && Date.now() - cache.ts < 5 * 60 * 1000;
@@ -2446,31 +2506,26 @@ async function loadCalendar(force = false) {
     const events = await calFetchEvents(token);
     await chrome.storage.local.set({ calCache: { events, ts: Date.now() } });
     renderCalendar(events);
-  } catch (e) { renderCalIdle("Calendar —", "Couldn't load. Try reconnecting in settings."); }
+  } catch (e) { renderCalIdle(t("cal.dash")); }
 }
 
 function renderCalSettings() {
   if (!calConfigured()) {
-    el.calStatus.textContent = "Setup needed";
+    el.calStatus.textContent = t("cal.setupNeeded");
     el.calConnect.hidden = true;
     el.calDisconnect.hidden = true;
-    el.calHint.innerHTML =
-      `To enable Google Calendar, create an OAuth client (type <b>Chrome extension</b>) in Google Cloud Console ` +
-      `with this extension ID:<br><code>${EXT_ID}</code><br>` +
-      `Add scope <code>calendar.readonly</code>, then paste the client ID into <code>manifest.json</code> → <code>oauth2.client_id</code> and reload. See the README for step-by-step.`;
+    el.calHint.innerHTML = t("cal.setupHint", { id: EXT_ID });
     return;
   }
-  el.calStatus.textContent = calConnected ? "Connected" : "Not connected";
+  el.calStatus.textContent = calConnected ? t("cal.connected") : t("cal.notConnected");
   el.calConnect.hidden = calConnected;
   el.calDisconnect.hidden = !calConnected;
-  el.calHint.textContent = calConnected
-    ? "Showing today's events from your primary calendar."
-    : "Connect to show today's meetings in the bar.";
+  el.calHint.textContent = calConnected ? t("cal.hintConnected") : t("cal.hintConnect");
 }
 
 el.calConnect.addEventListener("click", async () => {
   if (!calConfigured()) return;
-  el.calStatus.textContent = "Connecting…";
+  el.calStatus.textContent = t("cal.connecting");
   try {
     await getToken(true, CAL_SCOPES);
     calConnected = true;
@@ -2478,12 +2533,10 @@ el.calConnect.addEventListener("click", async () => {
     renderCalSettings();
     loadCalendar(true);
   } catch (e) {
-    el.calStatus.textContent = "Connection failed";
+    el.calStatus.textContent = t("cal.connectionFailed");
     const detail = (e && e.message) ? e.message : String(e);
     console.error("[DevCockpit] getAuthToken failed:", detail, e);
-    el.calHint.textContent =
-      "Couldn't connect: " + detail +
-      " — check the OAuth client ID, that you're added as a test user, and that Chrome is signed into the right Google account.";
+    el.calHint.textContent = t("cal.couldntConnect", { detail });
   }
 });
 
@@ -2492,7 +2545,7 @@ el.calDisconnect.addEventListener("click", async () => {
   calConnected = false;
   await chrome.storage.local.set({ calConnected: false, calCache: null });
   renderCalSettings();
-  renderCalIdle("Connect calendar");
+  renderCalIdle(t("cal.connect"));
 });
 
 // ----------------------------- slack -----------------------------
@@ -2504,10 +2557,11 @@ function slackConfigured() {
 // Render the top-bar pill + popover from a cached counts snapshot.
 // Pill-only: the bar badge. Full message bodies live in the drawer (loadSlackDrawer).
 function renderSlack(counts) {
+  lastSlackCounts = counts;
   el.slackPill.classList.remove("has-unread");
-  if (!slackConfigured()) { el.slackPillText.textContent = "Slack"; return; }
+  if (!slackConfigured()) { el.slackPillText.textContent = t("slack.label"); return; }
   if (counts && counts.error) {
-    el.slackPillText.textContent = counts.error === "auth" ? "Slack !" : "Slack —";
+    el.slackPillText.textContent = counts.error === "auth" ? t("slack.bang") : t("slack.dash");
     return;
   }
   const total = counts && typeof counts.total === "number" ? counts.total : 0;
@@ -2517,19 +2571,14 @@ function renderSlack(counts) {
 
 function renderSlackSettings() {
   if (!slackConfigured()) {
-    el.slackStatus.textContent = "Not connected";
-    el.slackConnect.textContent = "Connect";
-    el.slackHint.innerHTML =
-      `Shows your combined unread count (DMs + @mentions) using Slack's session token. ` +
-      `In Chrome on <code>your-team.slack.com</code> open DevTools: ` +
-      `Console → <code>JSON.parse(localStorage.localConfig_v2).teams</code> for the <code>xoxc-…</code> token, ` +
-      `and Application → Cookies → cookie <code>d</code> for the <code>xoxd-…</code> value. ` +
-      `<b>Unofficial method:</b> tokens reset when you log out of Slack, grant full account access, and are stored only on this device.`;
+    el.slackStatus.textContent = t("slack.notConnected");
+    el.slackConnect.textContent = t("slack.connect");
+    el.slackHint.innerHTML = t("slack.hintDisconnected");
     return;
   }
-  el.slackStatus.textContent = "Connected";
-  el.slackConnect.textContent = "Update";
-  el.slackHint.textContent = "Polling your unread DMs and mentions every couple of minutes.";
+  el.slackStatus.textContent = t("slack.connected");
+  el.slackConnect.textContent = t("slack.update");
+  el.slackHint.textContent = t("slack.hintConnected");
 }
 
 el.slackConnect.addEventListener("click", async () => {
@@ -2537,28 +2586,28 @@ el.slackConnect.addEventListener("click", async () => {
   const token = el.slackToken.value.trim();
   const dCookie = el.slackCookie.value.trim();
   if (!workspaceUrl || !token || !dCookie) {
-    el.slackStatus.textContent = "Missing fields";
-    el.slackHint.textContent = "Fill in workspace URL, token, and cookie.";
+    el.slackStatus.textContent = t("slack.missingFields");
+    el.slackHint.textContent = t("slack.fillFields");
     return;
   }
   slackCfg = { workspaceUrl, token, dCookie, notify: el.slackNotify.checked };
   await chrome.storage.local.set({ slack: slackCfg });
-  el.slackStatus.textContent = "Connecting…";
+  el.slackStatus.textContent = t("slack.connecting");
   const res = await new Promise((resolve) => {
     try { chrome.runtime.sendMessage({ type: "slackConnect" }, (r) => resolve(r || { ok: false })); }
     catch (e) { resolve({ ok: false, error: "send_failed" }); }
   });
   if (res && res.ok) {
-    el.slackStatus.textContent = "Connected";
-    el.slackConnect.textContent = "Update";
-    el.slackHint.textContent = `Connected — ${res.total} unread right now.`;
+    el.slackStatus.textContent = t("slack.connected");
+    el.slackConnect.textContent = t("slack.update");
+    el.slackHint.textContent = t("slack.connectedCount", { n: res.total });
   } else {
     const err = (res && res.error) || "unknown";
-    el.slackStatus.textContent = "Connection failed";
+    el.slackStatus.textContent = t("slack.connectionFailed");
     el.slackHint.textContent =
       err === "not_authed" || err === "invalid_auth" || err === "auth"
-        ? "Slack rejected the token/cookie. Re-copy both from a fresh Slack web session."
-        : "Couldn't reach Slack (" + err + "). Check the workspace URL and try again.";
+        ? t("slack.rejected")
+        : t("slack.couldntReach", { err });
   }
 });
 
@@ -2609,10 +2658,11 @@ async function gmailFetchUnread(token) {
 
 // Pill-only: the bar badge (unread count). The message list lives in the drawer.
 function renderGmail(snap) {
+  if (snap !== undefined) lastGmailCache = snap;
   el.gmailPill.classList.remove("gmail-unread");
-  if (!gmailConfigured() || !gmailConnected) { el.gmailPillText.textContent = "Gmail"; return; }
+  if (!gmailConfigured() || !gmailConnected) { el.gmailPillText.textContent = t("gmail.label"); return; }
   if (snap && snap.error) {
-    el.gmailPillText.textContent = snap.error === "auth" ? "Gmail !" : "Gmail —";
+    el.gmailPillText.textContent = snap.error === "auth" ? "Gmail !" : t("gmail.dash");
     return;
   }
   const unread = snap && typeof snap.unread === "number" ? snap.unread : 0;
@@ -2648,8 +2698,8 @@ async function maybeNotifyGmail(prev, snap) {
       await chrome.notifications.create(`ff-gmail-${Date.now()}`, {
         type: "basic",
         iconUrl: "icons/icon128.png",
-        title: `Gmail — ${snap.unread} unread`,
-        message: `${added} new email${added === 1 ? "" : "s"} in your inbox.`,
+        title: t("notif.gmailTitle", { n: snap.unread }),
+        message: t("notif.gmailBody", { n: added }),
         priority: 1,
       });
     } catch (e) {}
@@ -2658,26 +2708,22 @@ async function maybeNotifyGmail(prev, snap) {
 
 function renderGmailSettings() {
   if (!gmailConfigured()) {
-    el.gmailStatus.textContent = "Setup needed";
+    el.gmailStatus.textContent = t("gmail.setupNeeded");
     el.gmailConnect.hidden = true;
     el.gmailDisconnect.hidden = true;
-    el.gmailHint.innerHTML =
-      `Gmail uses the same Google OAuth client as Calendar. Set up the client ID first (see the Google Calendar section), ` +
-      `add the <code>gmail.metadata</code> scope on your OAuth consent screen, then reload.`;
+    el.gmailHint.innerHTML = t("gmail.setupHint");
     return;
   }
-  el.gmailStatus.textContent = gmailConnected ? "Connected" : "Not connected";
+  el.gmailStatus.textContent = gmailConnected ? t("gmail.connected") : t("gmail.notConnected");
   el.gmailConnect.hidden = gmailConnected;
   el.gmailDisconnect.hidden = !gmailConnected;
   el.gmailNotify.checked = gmailNotify;
-  el.gmailHint.textContent = gmailConnected
-    ? "Showing your inbox unread count (labels only — never message contents)."
-    : "Connect to show your Gmail inbox unread count in the bar.";
+  el.gmailHint.textContent = gmailConnected ? t("gmail.hintConnected") : t("gmail.hintConnect");
 }
 
 el.gmailConnect.addEventListener("click", async () => {
   if (!gmailConfigured()) return;
-  el.gmailStatus.textContent = "Connecting…";
+  el.gmailStatus.textContent = t("gmail.connecting");
   try {
     await getToken(true, GMAIL_SCOPES);
     gmailConnected = true;
@@ -2685,12 +2731,10 @@ el.gmailConnect.addEventListener("click", async () => {
     renderGmailSettings();
     loadGmail(true);
   } catch (e) {
-    el.gmailStatus.textContent = "Connection failed";
+    el.gmailStatus.textContent = t("gmail.connectionFailed");
     const detail = (e && e.message) ? e.message : String(e);
     console.error("[DevCockpit] Gmail getAuthToken failed:", detail, e);
-    el.gmailHint.textContent =
-      "Couldn't connect: " + detail +
-      " — make sure the gmail.metadata scope is on your OAuth consent screen and you're signed into the right Google account.";
+    el.gmailHint.textContent = t("gmail.couldntConnect", { detail });
   }
 });
 
@@ -2712,7 +2756,7 @@ el.gmailNotify.addEventListener("change", async () => {
 function anthropicReady() { return !!(anthropicCfg && anthropicCfg.apiKey); }
 
 function renderAnthropicSettings() {
-  el.anthropicStatus.textContent = anthropicReady() ? "Key saved" : "Not set";
+  el.anthropicStatus.textContent = anthropicReady() ? t("anthropic.keySaved") : t("anthropic.notSet");
   el.anthropicModel.value = (anthropicCfg && anthropicCfg.model) || "claude-haiku-4-5";
   el.anthropicKey.value = ""; // never echo the stored key back into the field
 }
@@ -2720,12 +2764,12 @@ function renderAnthropicSettings() {
 el.anthropicSave.addEventListener("click", async () => {
   const typed = el.anthropicKey.value.trim();
   const apiKey = typed || (anthropicCfg && anthropicCfg.apiKey) || "";
-  if (!apiKey) { el.anthropicStatus.textContent = "Enter a key"; return; }
+  if (!apiKey) { el.anthropicStatus.textContent = t("anthropic.enterKey"); return; }
   anthropicCfg = { apiKey, model: el.anthropicModel.value };
   await chrome.storage.local.set({ anthropic: anthropicCfg });
   el.anthropicKey.value = "";
-  el.anthropicStatus.textContent = "Key saved";
-  el.anthropicHint.textContent = "Saved on this device. Used by the Slack panel's AI buttons.";
+  el.anthropicStatus.textContent = t("anthropic.keySaved");
+  el.anthropicHint.textContent = t("anthropic.savedHint");
 });
 
 el.anthropicModel.addEventListener("change", async () => {
@@ -2745,7 +2789,12 @@ el.anthropicClear.addEventListener("click", async () => {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
   if (changes.timer) { timer = changes.timer.newValue; renderTimer(); startTick(); }
-  if (changes.settings) { settings = { ...DEFAULT_SETTINGS, ...changes.settings.newValue }; applyTheme(); renderTimer(); }
+  if (changes.settings) {
+    const prevLang = getLanguage();
+    settings = { ...DEFAULT_SETTINGS, ...changes.settings.newValue };
+    applyTheme();
+    if (settings.language !== prevLang) applyLanguage(); else renderTimer();
+  }
   if (changes.slackCounts) renderSlack(changes.slackCounts.newValue);
   if (changes.slack) { slackCfg = changes.slack.newValue || null; }
   if ((changes.boards || changes.activeBoardId) && !isDragging && !isEditingBoard && !isAddingCard) {
@@ -2803,13 +2852,14 @@ el.viewNav.addEventListener("click", (e) => {
 // ===================== Ideas: free-form sticky-note canvas =====================
 
 // Note "types" — each is a preset look the user picks from the + Note dropdown.
+// `labelKey` is resolved via t() at render time so note-type names follow the language.
 const NOTE_TYPES = [
-  { key: "sticky", label: "Sticky note", color: "#fff6c8" },
-  { key: "idea", label: "Idea", color: "#cfe6ff" },
-  { key: "todo", label: "To-do", color: "#d6f0d0" },
-  { key: "question", label: "Question", color: "#ffd8cc" },
-  { key: "highlight", label: "Highlight", color: "#e6d6ff" },
-  { key: "plain", label: "Plain", color: "#ffffff" },
+  { key: "sticky", labelKey: "note.sticky", color: "#fff6c8" },
+  { key: "idea", labelKey: "note.idea", color: "#cfe6ff" },
+  { key: "todo", labelKey: "note.todo", color: "#d6f0d0" },
+  { key: "question", labelKey: "note.question", color: "#ffd8cc" },
+  { key: "highlight", labelKey: "note.highlight", color: "#e6d6ff" },
+  { key: "plain", labelKey: "note.plain", color: "#ffffff" },
 ];
 const NOTE_TYPE_BY_KEY = Object.fromEntries(NOTE_TYPES.map((t) => [t.key, t]));
 function noteColor(note) {
@@ -2885,7 +2935,7 @@ function buildNoteEl(note) {
   grip.className = "idea-note-grip"; grip.setAttribute("aria-hidden", "true");
   bar.appendChild(grip);
   const del = document.createElement("button");
-  del.type = "button"; del.className = "idea-note-del"; del.textContent = "✕"; del.title = "Delete note";
+  del.type = "button"; del.className = "idea-note-del"; del.textContent = "✕"; del.title = t("ideas.deleteNote");
   del.addEventListener("click", (e) => { e.stopPropagation(); deleteNote(note.id); });
   bar.appendChild(del);
   root.appendChild(bar);
@@ -2894,7 +2944,7 @@ function buildNoteEl(note) {
   body.className = "idea-note-body";
   body.contentEditable = "true";
   body.spellcheck = false;
-  body.dataset.placeholder = "Type an idea…";
+  body.dataset.placeholder = t("ideas.notePlaceholder");
   body.textContent = note.text || "";
   let saveT = null;
   body.addEventListener("input", () => { clearTimeout(saveT); const text = body.innerText; saveT = setTimeout(() => updateNote(note.id, { text }), 350); });
@@ -2965,7 +3015,7 @@ function renderIdeas() {
   if (!ids.length && !hint) {
     hint = document.createElement("div");
     hint.className = "ideas-empty";
-    hint.textContent = "Double-click anywhere to add your first idea.";
+    hint.textContent = t("ideas.empty");
     el.ideasViewport.appendChild(hint);
   } else if (ids.length && hint) {
     hint.remove();
@@ -3013,11 +3063,11 @@ function addNoteAtCenter(typeKey) {
 }
 function buildIdeasTypeMenu() {
   el.ideasTypeMenu.innerHTML = "";
-  for (const t of NOTE_TYPES) {
+  for (const type of NOTE_TYPES) {
     const item = document.createElement("button");
-    item.type = "button"; item.className = "ideas-type-item"; item.dataset.type = t.key; item.setAttribute("role", "menuitem");
-    const dot = document.createElement("span"); dot.className = "ideas-type-dot"; dot.style.background = t.color;
-    item.appendChild(dot); item.appendChild(document.createTextNode(t.label));
+    item.type = "button"; item.className = "ideas-type-item"; item.dataset.type = type.key; item.setAttribute("role", "menuitem");
+    const dot = document.createElement("span"); dot.className = "ideas-type-dot"; dot.style.background = type.color;
+    item.appendChild(dot); item.appendChild(document.createTextNode(t(type.labelKey)));
     el.ideasTypeMenu.appendChild(item);
   }
 }
@@ -3053,18 +3103,18 @@ function newsAge(ts) {
   if (!ts) return "";
   const diff = Date.now() - ts;
   const m = Math.round(diff / 60000);
-  if (m < 1) return "just now";
-  if (m < 60) return m + "m ago";
+  if (m < 1) return t("news.ageNow");
+  if (m < 60) return t("news.ageM", { m });
   const h = Math.round(m / 60);
-  if (h < 24) return h + "h ago";
-  return Math.round(h / 24) + "d ago";
+  if (h < 24) return t("news.ageH", { h });
+  return t("news.ageD", { d: Math.round(h / 24) });
 }
 function aiErrorText(error) {
-  if (error === "no_key") return "Add your Claude API key in Settings → Integrations to use summaries.";
-  if (error === "rate_limited") return "Claude is rate-limited — try again in a moment.";
-  if (error === "overloaded") return "Claude is busy right now — try again shortly.";
-  if (error === "auth") return "Your Claude API key was rejected. Check it in Settings.";
-  return "Couldn’t summarize — please try again.";
+  if (error === "no_key") return t("ai.noKey");
+  if (error === "rate_limited") return t("ai.rate");
+  if (error === "overloaded") return t("ai.overloaded");
+  if (error === "auth") return t("ai.auth");
+  return t("ai.generic");
 }
 
 function buildNewsItem(item) {
@@ -3095,35 +3145,36 @@ function buildNewsItem(item) {
   if (item.commentsUrl && item.commentsUrl !== item.url) {
     const cl = document.createElement("a");
     cl.className = "news-title"; cl.style.fontSize = "12px"; cl.style.fontWeight = "400";
-    cl.href = item.commentsUrl; cl.target = "_blank"; cl.rel = "noopener noreferrer"; cl.textContent = "comments";
+    cl.href = item.commentsUrl; cl.target = "_blank"; cl.rel = "noopener noreferrer"; cl.textContent = t("news.comments");
     meta.appendChild(document.createTextNode("  ·  ")); meta.appendChild(cl);
   }
   const sum = document.createElement("button");
-  sum.type = "button"; sum.className = "news-summarize"; sum.textContent = "Summarize";
+  sum.type = "button"; sum.className = "news-summarize"; sum.textContent = t("news.summarize");
   meta.appendChild(sum);
   li.appendChild(meta);
 
   sum.addEventListener("click", async () => {
     let box = li.querySelector(".news-summary");
     if (!box) { box = document.createElement("div"); box.className = "news-summary"; li.appendChild(box); }
-    box.classList.remove("err"); box.textContent = "Summarizing…";
+    box.classList.remove("err"); box.textContent = t("news.summarizing");
     sum.disabled = true;
     const res = await aiSend("aiSummarize", { title: item.title, url: item.url });
     if (res && res.ok) { box.textContent = res.text; }
     else { box.textContent = aiErrorText(res && res.error); box.classList.add("err"); }
-    sum.disabled = false; sum.textContent = "Summarize";
+    sum.disabled = false; sum.textContent = t("news.summarize");
   });
 
   return li;
 }
 
 function renderNews(errors) {
+  lastNewsErrors = errors || null;
   const list = newsFilter === "all" ? newsItems : newsItems.filter((i) => i.source === newsFilter);
   el.newsList.innerHTML = "";
   if (!list.length) {
     const li = document.createElement("li");
     li.className = "drawer-empty";
-    li.textContent = (errors && errors.length) ? "Couldn’t load news from " + errors.join(", ") + "." : "No stories to show.";
+    li.textContent = (errors && errors.length) ? t("news.loadFailFrom", { sources: errors.join(", ") }) : t("news.empty");
     el.newsList.appendChild(li);
     return;
   }
@@ -3131,7 +3182,7 @@ function renderNews(errors) {
   if (errors && errors.length) {
     const li = document.createElement("li");
     li.className = "drawer-empty";
-    li.textContent = "Couldn’t load: " + errors.join(", ") + ".";
+    li.textContent = t("news.loadFail", { sources: errors.join(", ") });
     el.newsList.appendChild(li);
   }
 }
@@ -3145,7 +3196,7 @@ async function loadNews(force) {
       if (Date.now() - (cache.ts || 0) < NEWS_TTL_MS) return; // fresh enough
     }
   }
-  if (!newsItems.length) el.newsList.innerHTML = '<li class="drawer-empty">Loading developer news…</li>';
+  if (!newsItems.length) el.newsList.innerHTML = `<li class="drawer-empty">${t("news.loading")}</li>`;
   try {
     const { items, errors } = await fetchAllNews();
     if (items.length) {
@@ -3154,7 +3205,7 @@ async function loadNews(force) {
     }
     renderNews(errors);
   } catch (e) {
-    if (!newsItems.length) el.newsList.innerHTML = '<li class="drawer-empty">Couldn’t load news. Check your connection and try Refresh.</li>';
+    if (!newsItems.length) el.newsList.innerHTML = `<li class="drawer-empty">${t("news.loadError")}</li>`;
   }
 }
 
@@ -3175,6 +3226,8 @@ el.newsRefresh.addEventListener("click", () => loadNews(true));
 async function init() {
   const data = await chrome.storage.local.get(["settings", "timer", "board", "boards", "activeBoardId", "globalList", "widgetLayout", "calConnected", "trelloSeeded", "slack", "slackCounts", "gmailConnected", "gmailNotify", "gmailCache", "anthropic", "ideas"]);
   settings = { ...DEFAULT_SETTINGS, ...(data.settings || {}) };
+  setLanguage(settings.language);
+  applyStaticI18n();
   timer = data.timer || { isRunning: false, isPaused: false, mode: "focus", endTime: null, remaining: settings.focusMin * 60, completedFocusTotal: 0 };
 
   // boards: load existing, migrate a legacy single board, or seed defaults

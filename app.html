@@ -10,15 +10,15 @@
     <!-- ===================== TOP INSTRUMENT BAR ===================== -->
     <header class="bar">
       <!-- Timer: number + 2 icons (play/pause, reset) -->
-      <div class="timer" id="timer" title="Focus / break timer">
+      <div class="timer" id="timer" title="Focus / break timer" data-i18n-title="timer.titleTip">
         <span class="timer-dot" id="timerDot" aria-hidden="true"></span>
         <span class="timer-time" id="timeDisplay">25:00</span>
         <div class="timer-controls">
-          <button class="ti" id="startPauseBtn" aria-label="Start">
+          <button class="ti" id="startPauseBtn" aria-label="Start" data-i18n-aria="timer.start.aria">
             <svg class="i-play" viewBox="0 0 24 24" width="17" height="17"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
             <svg class="i-pause" viewBox="0 0 24 24" width="17" height="17"><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" fill="currentColor"/></svg>
           </button>
-          <button class="ti" id="resetBtn" aria-label="Reset" title="Reset (R)">
+          <button class="ti" id="resetBtn" aria-label="Reset" title="Reset (R)" data-i18n-aria="timer.reset.aria" data-i18n-title="timer.reset.tip">
             <svg viewBox="0 0 24 24" width="16" height="16"><path d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z" fill="currentColor"/></svg>
           </button>
         </div>
@@ -28,7 +28,7 @@
       <div class="widget" id="wxWidget">
         <button class="pill" id="wxPill" aria-haspopup="true" aria-expanded="false">
           <span class="wx-icon" id="wxIcon" aria-hidden="true">··</span>
-          <span class="pill-text" id="wxPillText">Weather</span>
+          <span class="pill-text" id="wxPillText" data-i18n="pill.weather">Weather</span>
         </button>
         <div class="popover" id="wxPopover" hidden>
           <div class="wx-detail" id="wxDetail"></div>
@@ -37,9 +37,9 @@
 
       <!-- Centered view switcher: Boards · Ideas · News -->
       <nav class="view-nav" id="viewNav" role="tablist" aria-label="Views">
-        <button type="button" class="view-tab is-active" data-view="boards" role="tab" aria-selected="true">Boards</button>
-        <button type="button" class="view-tab" data-view="ideas" role="tab" aria-selected="false">Ideas</button>
-        <button type="button" class="view-tab" data-view="news" role="tab" aria-selected="false">News</button>
+        <button type="button" class="view-tab is-active" data-view="boards" role="tab" aria-selected="true" data-i18n="view.boards">Boards</button>
+        <button type="button" class="view-tab" data-view="ideas" role="tab" aria-selected="false" data-i18n="view.ideas">Ideas</button>
+        <button type="button" class="view-tab" data-view="news" role="tab" aria-selected="false" data-i18n="view.news">News</button>
       </nav>
 
       <div class="bar-spacer"></div>
@@ -48,7 +48,7 @@
       <div class="widget" id="calWidget">
         <button class="pill" id="calPill" aria-haspopup="true" aria-expanded="false">
           <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><rect x="3" y="4.5" width="18" height="16" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M3 9h18M8 2.5v4M16 2.5v4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-          <span class="pill-text" id="calPillText">Calendar</span>
+          <span class="pill-text" id="calPillText" data-i18n="pill.calendar">Calendar</span>
         </button>
       </div>
 
@@ -56,7 +56,7 @@
       <div class="widget" id="slackWidget">
         <button class="pill" id="slackPill" aria-haspopup="true" aria-expanded="false" title="Slack unread (DMs + mentions)">
           <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M9 3a2 2 0 0 0 0 4h2V5a2 2 0 0 0-2-2Zm0 6H3a2 2 0 1 0 0 4h6a2 2 0 0 0 0-4Zm12 2a2 2 0 0 0-4 0v2h2a2 2 0 0 0 2-2Zm-6 0V5a2 2 0 1 0-4 0v6a2 2 0 1 0 4 0Zm-2 4a2 2 0 0 0 0 4h2v-2a2 2 0 0 0-2-2Zm6 0h-2a2 2 0 1 0 0 4 2 2 0 0 0 2-2v-2Zm-4-6h2a2 2 0 1 0 0-4 2 2 0 0 0-2 2v2Z" fill="currentColor"/></svg>
-          <span class="pill-text" id="slackPillText">Slack</span>
+          <span class="pill-text" id="slackPillText" data-i18n="pill.slack">Slack</span>
         </button>
       </div>
 
@@ -64,7 +64,7 @@
       <div class="widget" id="gmailWidget">
         <button class="pill" id="gmailPill" aria-haspopup="true" aria-expanded="false" title="Gmail unread (inbox)">
           <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="m4 7 8 6 8-6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <span class="pill-text" id="gmailPillText">Gmail</span>
+          <span class="pill-text" id="gmailPillText" data-i18n="pill.gmail">Gmail</span>
         </button>
       </div>
     </header>
@@ -84,15 +84,15 @@
     <main class="view-ideas" id="ideasView" hidden>
       <div class="ideas-toolbar">
         <div class="ideas-add-wrap">
-          <button type="button" class="btn btn-soft sm ideas-add-main" id="ideasAddBtn" title="Add note (double-click canvas)">+ Note</button>
-          <button type="button" class="btn btn-soft sm ideas-type-caret" id="ideasTypeBtn" aria-haspopup="true" aria-expanded="false" aria-label="Choose note type">▾</button>
+          <button type="button" class="btn btn-soft sm ideas-add-main" id="ideasAddBtn" title="Add note (double-click canvas)" data-i18n="ideas.addNote" data-i18n-title="ideas.addNote.tip">+ Note</button>
+          <button type="button" class="btn btn-soft sm ideas-type-caret" id="ideasTypeBtn" aria-haspopup="true" aria-expanded="false" aria-label="Choose note type" data-i18n-aria="ideas.chooseType.aria">▾</button>
           <div class="ideas-type-menu" id="ideasTypeMenu" role="menu" hidden></div>
         </div>
         <span class="ideas-tool-sep" aria-hidden="true"></span>
-        <button type="button" class="ti ideas-zoom-btn" id="ideasZoomOut" aria-label="Zoom out" title="Zoom out">−</button>
-        <button type="button" class="ideas-zoom-label" id="ideasZoomReset" title="Reset zoom">100%</button>
-        <button type="button" class="ti ideas-zoom-btn" id="ideasZoomIn" aria-label="Zoom in" title="Zoom in">+</button>
-        <span class="ideas-hint">Double-click to add · drag to move · drag empty space to pan · ⌘/Ctrl+scroll to zoom</span>
+        <button type="button" class="ti ideas-zoom-btn" id="ideasZoomOut" aria-label="Zoom out" title="Zoom out" data-i18n-aria="ideas.zoomOut" data-i18n-title="ideas.zoomOut">−</button>
+        <button type="button" class="ideas-zoom-label" id="ideasZoomReset" title="Reset zoom" data-i18n-title="ideas.resetZoom">100%</button>
+        <button type="button" class="ti ideas-zoom-btn" id="ideasZoomIn" aria-label="Zoom in" title="Zoom in" data-i18n-aria="ideas.zoomIn" data-i18n-title="ideas.zoomIn">+</button>
+        <span class="ideas-hint" data-i18n="ideas.hint">Double-click to add · drag to move · drag empty space to pan · ⌘/Ctrl+scroll to zoom</span>
       </div>
       <div class="ideas-viewport" id="ideasViewport">
         <div class="ideas-layer" id="ideasLayer"></div>
@@ -103,11 +103,11 @@
     <main class="view-news" id="newsView" hidden>
       <div class="news-head">
         <nav class="news-filter" id="newsFilter" role="tablist" aria-label="News sources">
-          <button type="button" class="news-src-tab is-active" data-src="all" role="tab" aria-selected="true">All</button>
+          <button type="button" class="news-src-tab is-active" data-src="all" role="tab" aria-selected="true" data-i18n="news.all">All</button>
           <button type="button" class="news-src-tab" data-src="hn" role="tab" aria-selected="false">Hacker News</button>
           <button type="button" class="news-src-tab" data-src="devto" role="tab" aria-selected="false">Dev.to</button>
         </nav>
-        <button type="button" class="link-btn" id="newsRefresh" title="Refresh">↻ Refresh</button>
+        <button type="button" class="link-btn" id="newsRefresh" title="Refresh" data-i18n="news.refresh" data-i18n-title="drawer.refresh">↻ Refresh</button>
       </div>
       <ul class="news-list" id="newsList"></ul>
     </main>
@@ -116,109 +116,109 @@
     <dialog class="dlg" id="settingsDialog">
       <form method="dialog" class="dlg-form" id="settingsForm">
         <div class="dlg-head">
-          <h2>Settings</h2>
-          <button class="icon-btn" value="cancel" aria-label="Close">✕</button>
+          <h2 data-i18n="settings.title">Settings</h2>
+          <button class="icon-btn" value="cancel" aria-label="Close" data-i18n-aria="common.close">✕</button>
         </div>
 
         <nav class="dlg-tabs" id="settingsTabs" role="tablist" aria-label="Settings sections">
-          <button type="button" class="dlg-tab is-active" role="tab" data-tab="timer" aria-selected="true">Timer</button>
-          <button type="button" class="dlg-tab" role="tab" data-tab="integrations" aria-selected="false">Integrations</button>
-          <button type="button" class="dlg-tab" role="tab" data-tab="appearance" aria-selected="false">Appearance</button>
-          <button type="button" class="dlg-tab" role="tab" data-tab="backup" aria-selected="false">Backup</button>
+          <button type="button" class="dlg-tab is-active" role="tab" data-tab="timer" aria-selected="true" data-i18n="tab.timer">Timer</button>
+          <button type="button" class="dlg-tab" role="tab" data-tab="integrations" aria-selected="false" data-i18n="tab.integrations">Integrations</button>
+          <button type="button" class="dlg-tab" role="tab" data-tab="appearance" aria-selected="false" data-i18n="tab.appearance">Appearance</button>
+          <button type="button" class="dlg-tab" role="tab" data-tab="backup" aria-selected="false" data-i18n="tab.backup">Backup</button>
         </nav>
 
         <div class="tab-panel is-active" data-tab="timer" role="tabpanel">
         <fieldset class="group">
-          <legend>Timer (minutes)</legend>
-          <label>Focus <input type="number" id="focusMin" min="1" max="180" /></label>
-          <label>Break <input type="number" id="breakMin" min="1" max="60" /></label>
-          <label class="switch-row"><span>Auto-start next phase</span><input type="checkbox" id="autoStartNext" /></label>
+          <legend data-i18n="settings.timerMinutes">Timer (minutes)</legend>
+          <label><span data-i18n="settings.focus">Focus</span> <input type="number" id="focusMin" min="1" max="180" /></label>
+          <label><span data-i18n="settings.break">Break</span> <input type="number" id="breakMin" min="1" max="60" /></label>
+          <label class="switch-row"><span data-i18n="settings.autostart">Auto-start next phase</span><input type="checkbox" id="autoStartNext" /></label>
         </fieldset>
 
         <fieldset class="group">
-          <legend>Sound &amp; alerts</legend>
-          <label>Transition chime
+          <legend data-i18n="settings.soundAlerts">Sound &amp; alerts</legend>
+          <label><span data-i18n="settings.chime">Transition chime</span>
             <select id="sound">
-              <option value="gong">Gong</option>
-              <option value="bell">Bell</option>
-              <option value="beep">Beep</option>
-              <option value="none">None</option>
+              <option value="gong" data-i18n="sound.gong">Gong</option>
+              <option value="bell" data-i18n="sound.bell">Bell</option>
+              <option value="beep" data-i18n="sound.beep">Beep</option>
+              <option value="none" data-i18n="sound.none">None</option>
             </select>
           </label>
-          <label>Volume <input type="range" id="volume" min="0" max="1" step="0.05" /></label>
-          <label class="switch-row"><span>Desktop notification</span><input type="checkbox" id="notify" /></label>
-          <button type="button" class="btn btn-soft" id="previewSoundBtn">Preview</button>
+          <label><span data-i18n="settings.volume">Volume</span> <input type="range" id="volume" min="0" max="1" step="0.05" /></label>
+          <label class="switch-row"><span data-i18n="settings.desktopNotif">Desktop notification</span><input type="checkbox" id="notify" /></label>
+          <button type="button" class="btn btn-soft" id="previewSoundBtn" data-i18n="settings.preview">Preview</button>
         </fieldset>
         </div>
 
         <div class="tab-panel" data-tab="integrations" role="tabpanel" hidden>
         <fieldset class="group">
-          <legend>Weather</legend>
-          <label class="grow">City
+          <legend data-i18n="settings.weather">Weather</legend>
+          <label class="grow"><span data-i18n="settings.city">City</span>
             <span class="inline-input">
-              <input type="text" id="cityInput" placeholder="e.g. Toruń" />
-              <button type="button" class="btn btn-soft sm" id="useLocationBtn">Use my location</button>
+              <input type="text" id="cityInput" placeholder="e.g. Toruń" data-i18n-placeholder="settings.cityPlaceholder" />
+              <button type="button" class="btn btn-soft sm" id="useLocationBtn" data-i18n="settings.useLocation">Use my location</button>
             </span>
           </label>
           <p class="hint" id="wxHint"></p>
         </fieldset>
 
         <fieldset class="group">
-          <legend>Google Calendar</legend>
+          <legend data-i18n="settings.googleCalendar">Google Calendar</legend>
           <div class="cal-connect">
             <span id="calStatus">Not connected</span>
-            <button type="button" class="btn btn-soft sm" id="calConnectBtn">Connect</button>
-            <button type="button" class="btn btn-ghost sm" id="calDisconnectBtn" hidden>Disconnect</button>
+            <button type="button" class="btn btn-soft sm" id="calConnectBtn" data-i18n="settings.connect">Connect</button>
+            <button type="button" class="btn btn-ghost sm" id="calDisconnectBtn" hidden data-i18n="settings.disconnect">Disconnect</button>
           </div>
           <p class="hint" id="calHint"></p>
         </fieldset>
 
         <fieldset class="group">
-          <legend>Slack unread</legend>
-          <label class="grow">Workspace URL
+          <legend data-i18n="settings.slackUnread">Slack unread</legend>
+          <label class="grow"><span data-i18n="settings.workspaceUrl">Workspace URL</span>
             <input type="text" id="slackWorkspace" placeholder="https://your-team.slack.com" />
           </label>
-          <label class="grow">Session token (xoxc)
+          <label class="grow"><span data-i18n="settings.sessionToken">Session token (xoxc)</span>
             <input type="password" id="slackToken" placeholder="xoxc-…" autocomplete="off" />
           </label>
-          <label class="grow">Cookie d (xoxd)
+          <label class="grow"><span data-i18n="settings.cookieD">Cookie d (xoxd)</span>
             <input type="password" id="slackCookie" placeholder="xoxd-…" autocomplete="off" />
           </label>
-          <label class="switch-row"><span>Desktop alerts for new Slack activity</span><input type="checkbox" id="slackNotify" /></label>
+          <label class="switch-row"><span data-i18n="settings.slackDesktopAlerts">Desktop alerts for new Slack activity</span><input type="checkbox" id="slackNotify" /></label>
           <div class="cal-connect">
             <span id="slackStatus">Not connected</span>
-            <button type="button" class="btn btn-soft sm" id="slackConnectBtn">Connect</button>
-            <button type="button" class="btn btn-ghost sm" id="slackClearBtn">Clear</button>
+            <button type="button" class="btn btn-soft sm" id="slackConnectBtn" data-i18n="settings.connect">Connect</button>
+            <button type="button" class="btn btn-ghost sm" id="slackClearBtn" data-i18n="settings.clear">Clear</button>
           </div>
           <p class="hint" id="slackHint"></p>
         </fieldset>
 
         <fieldset class="group">
-          <legend>Gmail unread</legend>
+          <legend data-i18n="settings.gmailUnread">Gmail unread</legend>
           <div class="cal-connect">
             <span id="gmailStatus">Not connected</span>
-            <button type="button" class="btn btn-soft sm" id="gmailConnectBtn">Connect</button>
-            <button type="button" class="btn btn-ghost sm" id="gmailDisconnectBtn" hidden>Disconnect</button>
+            <button type="button" class="btn btn-soft sm" id="gmailConnectBtn" data-i18n="settings.connect">Connect</button>
+            <button type="button" class="btn btn-ghost sm" id="gmailDisconnectBtn" hidden data-i18n="settings.disconnect">Disconnect</button>
           </div>
-          <label class="switch-row"><span>Desktop alerts for new Gmail</span><input type="checkbox" id="gmailNotify" /></label>
+          <label class="switch-row"><span data-i18n="settings.gmailDesktopAlerts">Desktop alerts for new Gmail</span><input type="checkbox" id="gmailNotify" /></label>
           <p class="hint" id="gmailHint"></p>
         </fieldset>
 
         <fieldset class="group">
-          <legend>AI (Anthropic)</legend>
-          <label class="grow">API key
+          <legend data-i18n="settings.ai">AI (Anthropic)</legend>
+          <label class="grow"><span data-i18n="settings.apiKey">API key</span>
             <input type="password" id="anthropicKey" placeholder="sk-ant-…" autocomplete="off" />
           </label>
-          <label>Model
+          <label><span data-i18n="settings.model">Model</span>
             <select id="anthropicModel">
-              <option value="claude-haiku-4-5">Claude Haiku 4.5 (fast &amp; cheap)</option>
-              <option value="claude-sonnet-4-6">Claude Sonnet 4.6 (smarter)</option>
+              <option value="claude-haiku-4-5" data-i18n="model.haiku">Claude Haiku 4.5 (fast &amp; cheap)</option>
+              <option value="claude-sonnet-4-6" data-i18n="model.sonnet">Claude Sonnet 4.6 (smarter)</option>
             </select>
           </label>
           <div class="cal-connect">
             <span id="anthropicStatus">Not set</span>
-            <button type="button" class="btn btn-soft sm" id="anthropicSaveBtn">Save key</button>
-            <button type="button" class="btn btn-ghost sm" id="anthropicClearBtn">Clear</button>
+            <button type="button" class="btn btn-soft sm" id="anthropicSaveBtn" data-i18n="settings.saveKey">Save key</button>
+            <button type="button" class="btn btn-ghost sm" id="anthropicClearBtn" data-i18n="settings.clear">Clear</button>
           </div>
           <p class="hint" id="anthropicHint">Powers the Slack panel's “Wyjaśnij (PL)” and “Odpowiedz (EN)” buttons. The key is stored only on this device.</p>
         </fieldset>
@@ -226,31 +226,37 @@
 
         <div class="tab-panel" data-tab="appearance" role="tabpanel" hidden>
         <fieldset class="group">
-          <legend>Appearance</legend>
-          <label>Theme
-            <select id="theme">
-              <option value="auto">System</option>
-              <option value="dark">Dark</option>
-              <option value="contrast">Dark (High Contrast)</option>
-              <option value="light">Light</option>
-              <option value="midnight">Midnight (OLED)</option>
-              <option value="sepia">Sepia</option>
-              <option value="solarized-dark">Solarized Dark</option>
-              <option value="solarized-light">Solarized Light</option>
-              <option value="zed">Zed (One Dark)</option>
+          <legend data-i18n="tab.appearance">Appearance</legend>
+          <label><span data-i18n="settings.language">Language</span>
+            <select id="language">
+              <option value="en">English</option>
+              <option value="pl">Polski</option>
             </select>
           </label>
-          <label>Accent color
+          <label><span data-i18n="settings.theme">Theme</span>
+            <select id="theme">
+              <option value="auto" data-i18n="theme.auto">System</option>
+              <option value="dark" data-i18n="theme.dark">Dark</option>
+              <option value="contrast" data-i18n="theme.contrast">Dark (High Contrast)</option>
+              <option value="light" data-i18n="theme.light">Light</option>
+              <option value="midnight" data-i18n="theme.midnight">Midnight (OLED)</option>
+              <option value="sepia" data-i18n="theme.sepia">Sepia</option>
+              <option value="solarized-dark" data-i18n="theme.solarizedDark">Solarized Dark</option>
+              <option value="solarized-light" data-i18n="theme.solarizedLight">Solarized Light</option>
+              <option value="zed" data-i18n="theme.zed">Zed (One Dark)</option>
+            </select>
+          </label>
+          <label><span data-i18n="settings.accent">Accent color</span>
             <select id="accentTheme">
-              <option value="ember">Ember</option>
-              <option value="ocean">Ocean</option>
-              <option value="violet">Violet</option>
-              <option value="forest">Forest</option>
-              <option value="rose">Rose</option>
-              <option value="amber">Amber</option>
-              <option value="crimson">Crimson</option>
-              <option value="teal">Teal</option>
-              <option value="graphite">Graphite</option>
+              <option value="ember" data-i18n="accent.ember">Ember</option>
+              <option value="ocean" data-i18n="accent.ocean">Ocean</option>
+              <option value="violet" data-i18n="accent.violet">Violet</option>
+              <option value="forest" data-i18n="accent.forest">Forest</option>
+              <option value="rose" data-i18n="accent.rose">Rose</option>
+              <option value="amber" data-i18n="accent.amber">Amber</option>
+              <option value="crimson" data-i18n="accent.crimson">Crimson</option>
+              <option value="teal" data-i18n="accent.teal">Teal</option>
+              <option value="graphite" data-i18n="accent.graphite">Graphite</option>
             </select>
           </label>
         </fieldset>
@@ -258,21 +264,21 @@
 
         <div class="tab-panel" data-tab="backup" role="tabpanel" hidden>
         <fieldset class="group">
-          <legend>Backup &amp; restore</legend>
+          <legend data-i18n="settings.backupRestore">Backup &amp; restore</legend>
           <div class="backup-actions">
-            <button type="button" class="btn btn-soft sm" id="downloadBackupBtn">Download backup</button>
-            <button type="button" class="btn btn-soft sm" id="restoreBackupBtn">Restore from file…</button>
+            <button type="button" class="btn btn-soft sm" id="downloadBackupBtn" data-i18n="backup.download">Download backup</button>
+            <button type="button" class="btn btn-soft sm" id="restoreBackupBtn" data-i18n="backup.restoreFile">Restore from file…</button>
             <input type="file" id="restoreFileInput" accept="application/json,.json" hidden />
           </div>
-          <label class="switch-row"><span>Auto-save a daily backup to Downloads</span><input type="checkbox" id="autoBackupFile" /></label>
-          <p class="hint" id="backupHint">Boards and settings only — Slack &amp; Calendar credentials are never included. Snapshots are also saved automatically as you work, so you can roll back.</p>
+          <label class="switch-row"><span data-i18n="backup.autoDaily">Auto-save a daily backup to Downloads</span><input type="checkbox" id="autoBackupFile" /></label>
+          <p class="hint" id="backupHint" data-i18n="backup.hint">Boards and settings only — Slack &amp; Calendar credentials are never included. Snapshots are also saved automatically as you work, so you can roll back.</p>
           <div class="backup-history" id="backupHistory"></div>
         </fieldset>
         </div>
 
         <div class="dlg-actions">
-          <button type="button" class="btn btn-ghost" id="resetSettingsBtn">Reset defaults</button>
-          <button class="btn btn-primary" value="save">Save</button>
+          <button type="button" class="btn btn-ghost" id="resetSettingsBtn" data-i18n="settings.resetDefaults">Reset defaults</button>
+          <button class="btn btn-primary" value="save" data-i18n="common.save">Save</button>
         </div>
       </form>
     </dialog>
@@ -281,14 +287,14 @@
     <dialog class="dlg" id="taskDialog">
       <form method="dialog" class="dlg-form" id="taskForm">
         <div class="dlg-head">
-          <h2 id="taskDialogTitle">Edit task</h2>
-          <button class="icon-btn" value="cancel" aria-label="Close">✕</button>
+          <h2 id="taskDialogTitle" data-i18n="task.editTitle">Edit task</h2>
+          <button class="icon-btn" value="cancel" aria-label="Close" data-i18n-aria="common.close">✕</button>
         </div>
-        <label class="field">Title<input type="text" id="taskTitle" maxlength="200" required /></label>
-        <label class="field">Notes<textarea id="taskNotes" rows="4" maxlength="2000" placeholder="Optional details…"></textarea></label>
+        <label class="field"><span data-i18n="task.titleLabel">Title</span><input type="text" id="taskTitle" maxlength="200" required /></label>
+        <label class="field"><span data-i18n="task.notesLabel">Notes</span><textarea id="taskNotes" rows="4" maxlength="2000" placeholder="Optional details…" data-i18n-placeholder="task.notesPlaceholder"></textarea></label>
         <div class="dlg-actions">
-          <button type="button" class="btn btn-ghost danger" id="deleteTaskBtn">Delete</button>
-          <button class="btn btn-primary" value="save">Save</button>
+          <button type="button" class="btn btn-ghost danger" id="deleteTaskBtn" data-i18n="common.delete">Delete</button>
+          <button class="btn btn-primary" value="save" data-i18n="common.save">Save</button>
         </div>
       </form>
     </dialog>
@@ -297,23 +303,23 @@
     <dialog class="dlg" id="boardDialog">
       <form method="dialog" class="dlg-form" id="boardForm">
         <div class="dlg-head">
-          <h2 id="boardDialogTitle">New board</h2>
-          <button class="icon-btn" value="cancel" aria-label="Close">✕</button>
+          <h2 id="boardDialogTitle" data-i18n="board.newTitle">New board</h2>
+          <button class="icon-btn" value="cancel" aria-label="Close" data-i18n-aria="common.close">✕</button>
         </div>
-        <label class="field">Name<input type="text" id="boardName" maxlength="40" placeholder="e.g. Personal" required /></label>
+        <label class="field"><span data-i18n="board.nameLabel">Name</span><input type="text" id="boardName" maxlength="40" placeholder="e.g. Personal" data-i18n-placeholder="board.namePlaceholder" required /></label>
         <div class="field">
-          <span>Icon</span>
+          <span data-i18n="board.iconLabel">Icon</span>
           <div class="icon-picker" id="iconPicker"></div>
         </div>
         <div class="dlg-actions">
-          <button type="button" class="btn btn-ghost danger" id="deleteBoardBtn">Delete</button>
-          <button class="btn btn-primary" value="save">Save</button>
+          <button type="button" class="btn btn-ghost danger" id="deleteBoardBtn" data-i18n="common.delete">Delete</button>
+          <button class="btn btn-primary" value="save" data-i18n="common.save">Save</button>
         </div>
       </form>
     </dialog>
 
     <!-- Settings: pinned to the bottom-left corner -->
-    <button class="ti ti-settings" id="settingsBtn" aria-label="Settings" title="Settings">
+    <button class="ti ti-settings" id="settingsBtn" aria-label="Settings" title="Settings" data-i18n-aria="settings.btn" data-i18n-title="settings.btn">
       <svg viewBox="0 0 24 24" width="17" height="17">
         <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" fill="none" stroke="currentColor" stroke-width="1.6"/>
         <path d="M19.4 13a7.7 7.7 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.6 7.6 0 0 0-1.7-1l-.4-2.5h-3.8l-.4 2.5a7.6 7.6 0 0 0-1.7 1l-2.4-1-2 3.4L4.6 11a7.7 7.7 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.6 7.6 0 0 0 1.7 1l.4 2.5h3.8l.4-2.5a7.6 7.6 0 0 0 1.7-1l2.4 1 2-3.4Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
@@ -324,10 +330,10 @@
     <div class="drawer-overlay" id="drawerOverlay" hidden></div>
     <aside class="drawer" id="detailDrawer" aria-hidden="true" hidden>
       <header class="drawer-head">
-        <h2 id="drawerTitle">Details</h2>
+        <h2 id="drawerTitle" data-i18n="drawer.titleDefault">Details</h2>
         <div class="drawer-head-actions">
-          <button class="link-btn" id="drawerRefresh" title="Refresh">↻</button>
-          <button class="icon-btn" id="drawerClose" aria-label="Close">✕</button>
+          <button class="link-btn" id="drawerRefresh" title="Refresh" data-i18n-title="drawer.refresh">↻</button>
+          <button class="icon-btn" id="drawerClose" aria-label="Close" data-i18n-aria="common.close">✕</button>
         </div>
       </header>
       <div class="drawer-body" id="drawerBody"></div>

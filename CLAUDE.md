@@ -43,6 +43,7 @@ code, not using the app.
 | `slack.js` | Slack `client.counts` reader (fetch + parse). Imported by the worker. |
 | `news.js` | Hacker News (Algolia) + Dev.to fetchers/normalizers for the News view. Imported by the **page** and fetched directly (keyless, CORS-friendly), like weather. |
 | `anthropic.js` | Anthropic Messages API client powering the Slack panel's PL-explain / EN-reply buttons. |
+| `i18n.js` | DOM-free, dependency-free message catalogue (English + Polish) and `t()` lookup. Imported by the page and the worker. See **Internationalization** below. |
 | `backup.js` | Shared JSON backup format + helpers (`buildBackup`, `readBackup`, `fingerprint`). Defines `BACKUP_DATA_KEYS`. |
 | `offscreen.html` / `offscreen.js` | Offscreen document that plays the chime when no tab is open. |
 | `icons/` | Toolbar/extension icons. `screenshots/` | README images. |
@@ -74,10 +75,23 @@ code, not using the app.
 - **Legacy name.** The project was renamed FocusFlow → DevCockpit. `chrome.alarms` are still
   prefixed `ff-`, and `backup.js` accepts `focusflow` backups via `LEGACY_BACKUP_APPS`. Don't
   "fix" these names — they preserve compatibility with existing installs.
+- **Internationalization.** UI copy is **English + Polish**, chosen via `settings.language`
+  (`'en'|'pl'`, defaults to `detectLang()` from the browser). Chrome's native `chrome.i18n`
+  isn't used — it keys off the browser UI locale and can't be switched at runtime — so `i18n.js`
+  is a custom `t(key, vars)` catalogue with `{var}` interpolation. Static markup carries
+  `data-i18n` / `data-i18n-title` / `data-i18n-aria` / `data-i18n-placeholder` attributes
+  (text attributes go on **leaf** elements so the walker never wipes child inputs/SVGs);
+  dynamically-generated strings call `t(...)`. `applyStaticI18n()` translates the page and
+  `applyLanguage()` re-runs the renderers for a live switch (mirrors `applyTheme()`), wired into
+  the settings submit, a live-preview `change` listener, and the `onChanged` settings handler.
+  `i18n.js` stays DOM-free so the worker imports it for notification strings. To add a string:
+  add the key to **both** `EN` and `PL` in `i18n.js` (keep them at parity), then reference it via
+  `data-i18n*` or `t()`. User content (board/card/note text) is never translated; the Slack-panel
+  AI buttons stay intentionally bilingual.
 
 ## Storage keys (chrome.storage.local)
 
-`settings` (includes `view`, the last-active top-bar view), `timer`, `boards`,
+`settings` (includes `view`, the last-active top-bar view, and `language`, `'en'|'pl'`), `timer`, `boards`,
 `activeBoardId`, `globalList`, `widgetLayout`, `ideas` (Ideas canvas: `{ canvases, activeId }`),
 `newsCache` (regenerable News feed, ~15 min TTL), `slack` (creds), `slackCounts`, `slackUsers`,
 `slackConvos`, `anthropic` (creds), `backups` (rolling snapshots), `lastAutoBackup`. Backups
