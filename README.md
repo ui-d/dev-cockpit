@@ -1,5 +1,11 @@
 # DevCockpit — Board, Timer, Day
 
+![Manifest V3](https://img.shields.io/badge/Chrome-Manifest%20V3-4285F4?logo=googlechrome&logoColor=white)
+![Vanilla JS](https://img.shields.io/badge/Vanilla-JS-F7DF1E?logo=javascript&logoColor=black)
+![No build step](https://img.shields.io/badge/build-none-brightgreen)
+![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
+![Version](https://img.shields.io/badge/version-2.2.0-orange)
+
 A board-first Chrome extension built to be your daily work surface. A slim top bar
 carries a minimal Pomodoro timer, today's Google Calendar, the current weather, and your
 Slack + Gmail unread counts — the rest of the screen is a Trello-style board. Everything
@@ -22,7 +28,9 @@ calendar, Slack and Gmail on the right:
   and (in settings) the phase lengths. Focus ↔ break only (no long break). A chime plays at
   every phase transition (the pitch nudges down going into a break, up going back to focus).
   Remaining time shows on the toolbar icon — ember while focusing, sage during a break, grey
-  when paused. Keyboard: **Space** start/pause · **R** reset · **S** skip phase.
+  when paused. Keyboard: **Space** start/pause · **R** reset · **S** skip phase · **F** focus ·
+  **B** break · **+ / −** (or **↑ / ↓**) extend/shorten by a minute · **M** mute chime ·
+  **A** toggle auto-start · **T** cycle theme · **?** show all shortcuts.
 - **Calendar** pill shows the ongoing or next meeting; click it for the full agenda for
   **today and tomorrow**, split into two sections. A meeting in progress gives the pill an
   accent outline.
@@ -48,8 +56,9 @@ calendar, Slack and Gmail on the right:
   icons sits on the **left** edge, one under another. Click an icon to switch boards; click
   the active icon again to rename it, change its emoji, or delete it. Use **+** to add one.
 - **Pinned list** — a single list docked on the **right** edge that stays visible on
-  **every** board. Drag cards into it from any board (or back out), so anything you want to
-  keep at hand follows you as you switch boards. Below it sits a small **widget tray** (see
+  **every** board. Its name is editable, and it has its own **+ Add a card** button (or press
+  **N** anywhere to drop a card straight into it). Drag cards into it from any board (or back
+  out), so anything you want to keep at hand follows you as you switch boards. Below it sits a small **widget tray** (see
   [Pinned list & widgets](#pinned-list--widgets)). The Slack, Gmail, Calendar and Weather
   panels float over the pinned list when opened.
 - **Themes** — nine base themes (including **Zed / One Dark**, Solarized, Sepia, Midnight
@@ -85,11 +94,20 @@ The choice is stored per-device and applies instantly.
 ## Pinned list & widgets
 
 The pinned list is docked on the right edge and shown on every board. Under its cards is a
-four-slot **widget tray**:
+four-slot **widget tray**. Which widget sits in which slot is configurable: click the **⚙**
+in the tray header (or any empty slot) to open **Manage widgets**, where you can add, remove,
+and reorder widgets across the four slots. The layout is saved per device.
 
-- **Slot 1 — work clock.** An analog clock with a 9 AM → 5 PM band painted around the dial
-  and a live countdown to 5 PM, so you can see how much of the workday is left at a glance.
-- **Slots 2–4** are open placeholders for future widgets.
+Available widgets:
+
+- **Work clock.** An analog clock with a 9 AM → 5 PM band painted around the dial and a live
+  countdown to 5 PM, so you can see how much of the workday is left at a glance.
+- **Soundscapes.** Relaxing background audio over a dimmed, gently drifting waves graphic.
+  Click a scene to play it; click it again to stop (no separate pause button). Five scenes:
+  **Lofi, Ambient, Piano, Nature, Rain** — each backed by a real internet-radio stream for
+  studio-quality audio (SomaFM, EPIC Classical, nature/rain stations), with a synthesized mix
+  as an automatic offline fallback. **Lofi** is instrumental/no-vocal; clicking it again cycles
+  through three SomaFM channels before switching off.
 
 ## Weather
 
@@ -196,6 +214,22 @@ reconnect them once, as in first-time setup.
 
 ## How it works
 
+Built as a zero-dependency Manifest V3 extension — plain ES modules and vanilla DOM, **no
+build step, no framework, no npm install**. Clone it, load it unpacked, and it runs.
+
+```
+manifest.json        MV3 manifest — permissions, OAuth client, CSP, stable extension key
+background.js        Service worker — timer, badge, chime, notifications, Slack polling, AI, backups
+app.html/.js/.css    Full-page UI — timer, boards, pinned list, widgets, calendar, weather, Slack, Gmail
+slack.js             Slack client.counts reader (imported by the worker)
+anthropic.js         Anthropic Messages API client (imported by the worker)
+backup.js            Shared JSON backup format + helpers
+offscreen.html/.js   Plays the chime when no tab is open
+icons/ screenshots/  Extension icons · README images
+```
+
+> Working on the code? See [CLAUDE.md](CLAUDE.md) for architecture notes and constraints.
+
 - `background.js` (service worker) owns phase transitions, the toolbar badge, the chime
   and notifications via `chrome.alarms` — so they fire on time even with no tab open. It
   also polls Slack unread counts in the background and runs the AI calls.
@@ -217,3 +251,7 @@ background polling), `offscreen` (the chime), `notifications` (timer / Slack / G
 alerts), `identity` (Google sign-in), `cookies` (the Slack `d` cookie), and `downloads`
 (backup files). Host access is limited to Open-Meteo, Google APIs, Slack, and the Anthropic
 API.
+
+## License
+
+[MIT](LICENSE) © Dawid Nawrocki
