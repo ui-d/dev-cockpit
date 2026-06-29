@@ -175,6 +175,13 @@ Open settings (gear, bottom-left) → **Appearance**. Nine base themes — `Syst
 `Forest`, `Rose`, `Amber`, `Crimson`, `Teal`, `Graphite`). The break phase always uses sage green so
 you can tell focus from break at a glance. The choice is per-device and applies instantly.
 
+### 🌐 Language
+
+The same **Appearance** tab has a **Language** picker — **English** or **Polski (Polish)**. The whole
+interface switches instantly, no reload. New installs start in your browser's language (Polish if
+Chrome is set to Polish, otherwise English) and you can change it any time. Your own content — board
+names, cards, and notes — is never translated.
+
 <table>
 <tr>
 <td width="20%"><img src="screenshots/theme-zed.png" alt="Zed (One Dark) theme" width="100%"><br><div align="center"><sub>Zed (One Dark)</sub></div></td>

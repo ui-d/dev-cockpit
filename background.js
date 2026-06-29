@@ -9,6 +9,7 @@
 import { fetchCounts, combineUnread, conversationKey, fetchUnreadMessages } from "./slack.js";
 import { explainMessagePL, draftReplyEN, summarizeArticleEN, DEFAULT_MODEL } from "./anthropic.js";
 import { BACKUP_DATA_KEYS, MAX_SNAPSHOTS, buildBackup, fingerprint, backupFileName } from "./backup.js";
+import { t, setLanguage } from "./i18n.js";
 
 const ALARM_COMPLETE = "ff-complete";
 const ALARM_TICK = "ff-tick";
@@ -171,11 +172,13 @@ async function pollSlack() {
   const changed = hadPrev && prev.key !== next.key;
   if (slack.notify && grew && changed && next.total > 0) {
     try {
+      const { settings } = await chrome.storage.local.get("settings");
+      setLanguage(settings && settings.language);
       await chrome.notifications.create(`ff-slack-${Date.now()}`, {
         type: "basic",
         iconUrl: "icons/icon128.png",
-        title: `Slack — ${next.total} unread`,
-        message: `${next.dms} direct message${next.dms === 1 ? "" : "s"} · ${next.mentions} mention${next.mentions === 1 ? "" : "s"}`,
+        title: t("notif.slackTitle", { n: next.total }),
+        message: t("notif.slackBody", { dms: next.dms, mentions: next.mentions }),
         priority: 2,
       });
     } catch (e) {}
@@ -404,9 +407,10 @@ async function advancePhase({ silent = false } = {}) {
 
 async function notifyAndSound(finishedMode, nextModeName, settings) {
   if (settings.notify) {
-    const title = finishedMode === "focus" ? "Focus done" : "Break over";
+    setLanguage(settings.language);
+    const title = finishedMode === "focus" ? t("notif.focusDone") : t("notif.breakOver");
     const message =
-      nextModeName === "focus" ? "Starting a focus block." : "Time for a short break.";
+      nextModeName === "focus" ? t("notif.startFocus") : t("notif.shortBreak");
     try {
       await chrome.notifications.create(`ff-${Date.now()}`, {
         type: "basic",
