@@ -2,15 +2,17 @@
   "manifest_version": 3,
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAve/OAZgfJcbtBN3ujqXY+Cfxv7UQe2+w4hqhiIA66eBpig/Bb0XxtM1OygQDtRI/iP9YcED9c0rfkGqoMYDDZa69VZbzbT/0S3KmviTswiiNGkuvYO3XiIgrWxVTVXE++LP/EYcQSohjDerKvyUvrdS59Tv6idIrjg8sTgV7AR3SpDp1YNgQtZzvy4AuigZWBATb5boplMSBhRUbckcsYvtNDFUr1hPrU4elZ8tSFfG2u3gQzqZvkquJMhSdaOClyp+xFdx13cxSKrDHQOQSvvgJISnctwfV7VY+aU9HZ12oNWdny0iAyfHXW/WJ8qNbdqnP7cxBj4524wh6Dj4S6QIDAQAB",
   "name": "DevCockpit — Board, Timer, Day",
-  "version": "2.2.0",
-  "description": "Your daily work boards: multiple Trello-style boards with a minimal Pomodoro timer, weather, Google Calendar, and your Slack + Gmail unread counts in one top bar.",
+  "version": "2.3.0",
+  "description": "Your daily work surface: switch between Trello-style boards, a free-form Ideas canvas, and a developer News feed — with a Pomodoro timer, weather, Google Calendar, and Slack + Gmail unread counts in the top bar.",
   "permissions": ["storage", "alarms", "offscreen", "notifications", "identity", "cookies", "downloads"],
   "host_permissions": [
     "https://api.open-meteo.com/*",
     "https://geocoding-api.open-meteo.com/*",
     "https://www.googleapis.com/*",
     "https://*.slack.com/*",
-    "https://api.anthropic.com/*"
+    "https://api.anthropic.com/*",
+    "https://hn.algolia.com/*",
+    "https://dev.to/*"
   ],
   "oauth2": {
     "client_id": "535711176927-6fg2v2tvc0afm3pkt8h54lt4ttsc27fm.apps.googleusercontent.com",

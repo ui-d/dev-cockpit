@@ -2,6 +2,7 @@
 // Top bar: minimal timer + Google Calendar + weather. Main area: the board.
 
 import { BACKUP_DATA_KEYS, buildBackup, readBackup, backupFileName } from "./backup.js";
+import { fetchAllNews } from "./news.js";
 
 const EXT_ID = "aiegllbeihjbphiilgeifggceklfffkn"; // deterministic (from manifest "key")
 const OAUTH_PLACEHOLDER = "YOUR_CLIENT_ID.apps.googleusercontent.com";
@@ -19,6 +20,7 @@ const DEFAULT_SETTINGS = {
   lat: null,
   lon: null,
   autoBackupFile: true,
+  view: "boards",
 };
 
 const $ = (s) => document.querySelector(s);
@@ -32,6 +34,24 @@ const el = {
   settingsBtn: $("#settingsBtn"),
   board: $("#board"),
   globalList: $("#globalList"),
+  // top-bar view switcher
+  viewNav: $("#viewNav"),
+  workspace: $("#workspace"),
+  ideasView: $("#ideasView"),
+  newsView: $("#newsView"),
+  // ideas canvas
+  ideasViewport: $("#ideasViewport"),
+  ideasLayer: $("#ideasLayer"),
+  ideasAdd: $("#ideasAddBtn"),
+  ideasTypeBtn: $("#ideasTypeBtn"),
+  ideasTypeMenu: $("#ideasTypeMenu"),
+  ideasZoomIn: $("#ideasZoomIn"),
+  ideasZoomOut: $("#ideasZoomOut"),
+  ideasZoomReset: $("#ideasZoomReset"),
+  // news feed
+  newsFilter: $("#newsFilter"),
+  newsRefresh: $("#newsRefresh"),
+  newsList: $("#newsList"),
   // calendar
   calPill: $("#calPill"),
   calPillText: $("#calPillText"),
@@ -134,6 +154,11 @@ let slackCfg = null; // { workspaceUrl, token, dCookie, notify } or null
 let gmailConnected = false;
 let gmailNotify = false;
 let anthropicCfg = null; // { apiKey, model } or null
+let ideas = { canvases: [], activeId: null };   // free-form sticky-note canvas
+let ideasInited = false;                         // first-view lazy render guard
+let newsInited = false;                          // first-view lazy load guard
+let newsFilter = "all";                          // 'all' | 'hn' | 'devto'
+let currentView = "boards";                      // 'boards' | 'ideas' | 'news'
 
 const BOARD_ICONS = ["🏠","💼","🌿","📋","🎯","🚀","💡","📚","🛒","💪","🎨","✈️","💰","🍳","❤️","🔧","🌟","📦","🧠","🎸","📅","🎬","💬","💎","💊","🏦","🛠️","🌙"];
 
@@ -200,9 +225,12 @@ el.settingsBtn.addEventListener("click", openSettings);
 
 document.addEventListener("keydown", (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey) return; // let shortcuts like Ctrl/Cmd+S through
-  if (e.target.matches("input, textarea, select")) return;
+  if (e.target.matches("input, textarea, select, [contenteditable='true']")) return;
   if (document.querySelector("dialog[open]")) return;
-  if (e.code === "Space") { e.preventDefault(); if (timer) send(timer.isRunning ? "pause" : "start"); }
+  if (e.key === "1") setView("boards");
+  else if (e.key === "2") setView("ideas");
+  else if (e.key === "3") setView("news");
+  else if (e.code === "Space") { e.preventDefault(); if (timer) send(timer.isRunning ? "pause" : "start"); }
   else if (e.key.toLowerCase() === "r") send("reset");
   else if (e.key.toLowerCase() === "s") send("skip");
   else if (e.key.toLowerCase() === "f") send("setMode", { mode: "focus" });
@@ -297,6 +325,7 @@ function cycleTheme() {
 
 // ? — toggle a modal cheat-sheet listing every shortcut.
 const SHORTCUT_ROWS = [
+  ["1 / 2 / 3", "Switch view: Boards / Ideas / News"],
   ["Space", "Start / pause timer"],
   ["F", "Switch to a focus block"],
   ["B", "Switch to a break"],
@@ -462,6 +491,7 @@ async function applyRestore(parsed) {
   const patch = { boards: parsed.boards, activeBoardId: parsed.activeBoardId };
   if (parsed.settings) patch.settings = { ...DEFAULT_SETTINGS, ...parsed.settings };
   if (parsed.globalList) patch.globalList = parsed.globalList;
+  if (parsed.ideas) patch.ideas = parsed.ideas;
   await chrome.storage.local.set(patch);
   location.reload();
 }
@@ -2734,12 +2764,416 @@ chrome.storage.onChanged.addListener((changes, area) => {
     renderGlobalList();
     renderWidgetManager();
   }
+  if (changes.ideas) {
+    // Skip our own writes (we already updated state + DOM); re-render only on
+    // cross-tab edits so we never wipe the note a user is currently typing in.
+    if (ideasMutating) { ideasMutating = false; }
+    else if (changes.ideas.newValue) {
+      ideas = normalizeIdeas(changes.ideas.newValue);
+      if (currentView === "ideas") renderIdeas();
+    }
+  }
 });
+
+// ===================== top-bar view switcher =====================
+
+const VIEWS = ["boards", "ideas", "news"];
+
+function setView(name) {
+  if (!VIEWS.includes(name)) name = "boards";
+  currentView = name;
+  el.workspace.hidden = name !== "boards";
+  el.ideasView.hidden = name !== "ideas";
+  el.newsView.hidden = name !== "news";
+  el.viewNav.querySelectorAll(".view-tab").forEach((tab) => {
+    const on = tab.dataset.view === name;
+    tab.classList.toggle("is-active", on);
+    tab.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  if (settings.view !== name) { settings = { ...settings, view: name }; chrome.storage.local.set({ settings }); }
+  if (name === "ideas") renderIdeas();
+  if (name === "news") { if (!newsInited) { newsInited = true; loadNews(false); } else renderNews(); }
+}
+
+el.viewNav.addEventListener("click", (e) => {
+  const tab = e.target.closest(".view-tab");
+  if (tab) setView(tab.dataset.view);
+});
+
+// ===================== Ideas: free-form sticky-note canvas =====================
+
+// Note "types" — each is a preset look the user picks from the + Note dropdown.
+const NOTE_TYPES = [
+  { key: "sticky", label: "Sticky note", color: "#fff6c8" },
+  { key: "idea", label: "Idea", color: "#cfe6ff" },
+  { key: "todo", label: "To-do", color: "#d6f0d0" },
+  { key: "question", label: "Question", color: "#ffd8cc" },
+  { key: "highlight", label: "Highlight", color: "#e6d6ff" },
+  { key: "plain", label: "Plain", color: "#ffffff" },
+];
+const NOTE_TYPE_BY_KEY = Object.fromEntries(NOTE_TYPES.map((t) => [t.key, t]));
+function noteColor(note) {
+  if (note.type && NOTE_TYPE_BY_KEY[note.type]) return NOTE_TYPE_BY_KEY[note.type].color;
+  return note.color || NOTE_TYPES[0].color; // back-compat with older colour-based notes
+}
+const NOTE_W = 200, NOTE_H = 160, NOTE_MIN = 110;
+let ideaPan = { x: 40, y: 40, zoom: 1 };
+let ideasMutating = false; // suppress our own storage.onChanged re-render
+
+function normalizeIdeas(raw) {
+  const r = raw && typeof raw === "object" ? raw : {};
+  let canvases = Array.isArray(r.canvases) ? r.canvases : [];
+  canvases = canvases
+    .filter((c) => c && typeof c === "object")
+    .map((c) => ({
+      id: typeof c.id === "string" ? c.id : newId(),
+      name: typeof c.name === "string" ? c.name : "Canvas",
+      notes: c.notes && typeof c.notes === "object" ? c.notes : {},
+    }));
+  if (!canvases.length) canvases = [{ id: newId(), name: "Canvas", notes: {} }];
+  const activeId = canvases.some((c) => c.id === r.activeId) ? r.activeId : canvases[0].id;
+  return { canvases, activeId };
+}
+function activeCanvas() { return ideas.canvases.find((c) => c.id === ideas.activeId) || ideas.canvases[0]; }
+function saveIdeas() { ideasMutating = true; chrome.storage.local.set({ ideas }); }
+function replaceCanvas(nextCanvas) {
+  ideas = { ...ideas, canvases: ideas.canvases.map((c) => (c.id === nextCanvas.id ? nextCanvas : c)) };
+}
+function updateNote(id, patch) {
+  const canvas = activeCanvas();
+  const cur = canvas.notes[id]; if (!cur) return;
+  replaceCanvas({ ...canvas, notes: { ...canvas.notes, [id]: { ...cur, ...patch } } });
+  saveIdeas();
+}
+function deleteNote(id) {
+  const canvas = activeCanvas();
+  const nextNotes = { ...canvas.notes }; delete nextNotes[id];
+  replaceCanvas({ ...canvas, notes: nextNotes });
+  saveIdeas();
+  renderIdeas();
+}
+function addNote(x, y, typeKey) {
+  const canvas = activeCanvas();
+  const id = newId();
+  const type = NOTE_TYPE_BY_KEY[typeKey] ? typeKey : NOTE_TYPES[0].key;
+  const note = { id, text: "", x: Math.round(x), y: Math.round(y), w: NOTE_W, h: NOTE_H, type, createdAt: Date.now() };
+  replaceCanvas({ ...canvas, notes: { ...canvas.notes, [id]: note } });
+  saveIdeas();
+  renderIdeas();
+  const body = el.ideasLayer.querySelector(`.idea-note[data-id="${id}"] .idea-note-body`);
+  if (body) body.focus();
+}
+
+function applyIdeasTransform() {
+  el.ideasLayer.style.transform = `translate(${ideaPan.x}px, ${ideaPan.y}px) scale(${ideaPan.zoom})`;
+  if (el.ideasZoomReset) el.ideasZoomReset.textContent = Math.round(ideaPan.zoom * 100) + "%";
+}
+
+function buildNoteEl(note) {
+  const root = document.createElement("div");
+  root.className = "idea-note";
+  root.dataset.id = note.id;
+  root.style.left = note.x + "px";
+  root.style.top = note.y + "px";
+  root.style.width = note.w + "px";
+  root.style.height = note.h + "px";
+  root.style.setProperty("--note-bg", noteColor(note));
+
+  const bar = document.createElement("div");
+  bar.className = "idea-note-bar";
+  const grip = document.createElement("span");
+  grip.className = "idea-note-grip"; grip.setAttribute("aria-hidden", "true");
+  bar.appendChild(grip);
+  const del = document.createElement("button");
+  del.type = "button"; del.className = "idea-note-del"; del.textContent = "✕"; del.title = "Delete note";
+  del.addEventListener("click", (e) => { e.stopPropagation(); deleteNote(note.id); });
+  bar.appendChild(del);
+  root.appendChild(bar);
+
+  const body = document.createElement("div");
+  body.className = "idea-note-body";
+  body.contentEditable = "true";
+  body.spellcheck = false;
+  body.dataset.placeholder = "Type an idea…";
+  body.textContent = note.text || "";
+  let saveT = null;
+  body.addEventListener("input", () => { clearTimeout(saveT); const text = body.innerText; saveT = setTimeout(() => updateNote(note.id, { text }), 350); });
+  root.appendChild(body);
+
+  const resize = document.createElement("div");
+  resize.className = "idea-note-resize";
+  resize.addEventListener("pointerdown", (e) => startNoteResize(e, note.id, root));
+  root.appendChild(resize);
+
+  // The whole note is draggable. A click that doesn't move focuses the body for
+  // editing; a drag past a small threshold moves the note. While the body is
+  // already focused, pointer events on it edit text (move via the header grip).
+  root.addEventListener("pointerdown", (e) => startNoteDrag(e, note, root, body));
+
+  return root;
+}
+
+function startNoteDrag(e, note, root, body) {
+  if (e.button !== 0) return;
+  if (e.target.closest(".idea-note-del, .idea-note-resize")) return; // their own handlers
+  const onBody = body.contains(e.target);
+  if (onBody && document.activeElement === body) return; // editing — let text selection happen
+  e.preventDefault(); // suppress native focus/selection; we focus manually on a plain click
+  const sx = e.clientX, sy = e.clientY, ox = note.x, oy = note.y, z = ideaPan.zoom;
+  let moved = false;
+  const move = (ev) => {
+    if (!moved && Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) < 4) return;
+    if (!moved) { moved = true; root.classList.add("dragging"); if (document.activeElement === body) body.blur(); }
+    root.style.left = (ox + (ev.clientX - sx) / z) + "px";
+    root.style.top = (oy + (ev.clientY - sy) / z) + "px";
+  };
+  const up = (ev) => {
+    window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up);
+    if (moved) {
+      root.classList.remove("dragging");
+      updateNote(note.id, { x: Math.round(ox + (ev.clientX - sx) / z), y: Math.round(oy + (ev.clientY - sy) / z) });
+    } else if (onBody) {
+      body.focus(); // plain click → edit
+    }
+  };
+  window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+}
+
+function startNoteResize(e, id, root) {
+  e.preventDefault(); e.stopPropagation();
+  const note = activeCanvas().notes[id]; if (!note) return;
+  const sx = e.clientX, sy = e.clientY, ow = note.w, oh = note.h, z = ideaPan.zoom;
+  const move = (ev) => {
+    const w = Math.max(NOTE_MIN, ow + (ev.clientX - sx) / z);
+    const h = Math.max(NOTE_MIN, oh + (ev.clientY - sy) / z);
+    root.style.width = w + "px"; root.style.height = h + "px";
+  };
+  const up = (ev) => {
+    window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up);
+    updateNote(id, { w: Math.round(Math.max(NOTE_MIN, ow + (ev.clientX - sx) / z)), h: Math.round(Math.max(NOTE_MIN, oh + (ev.clientY - sy) / z)) });
+  };
+  window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+}
+
+function renderIdeas() {
+  const canvas = activeCanvas();
+  const notes = canvas.notes || {};
+  const ids = Object.keys(notes);
+  el.ideasLayer.innerHTML = "";
+  for (const id of ids) el.ideasLayer.appendChild(buildNoteEl(notes[id]));
+  let hint = el.ideasViewport.querySelector(".ideas-empty");
+  if (!ids.length && !hint) {
+    hint = document.createElement("div");
+    hint.className = "ideas-empty";
+    hint.textContent = "Double-click anywhere to add your first idea.";
+    el.ideasViewport.appendChild(hint);
+  } else if (ids.length && hint) {
+    hint.remove();
+  }
+  applyIdeasTransform();
+}
+
+function ideaLayerPoint(clientX, clientY) {
+  const rect = el.ideasViewport.getBoundingClientRect();
+  return { x: (clientX - rect.left - ideaPan.x) / ideaPan.zoom, y: (clientY - rect.top - ideaPan.y) / ideaPan.zoom };
+}
+function setZoom(z, cx, cy) {
+  const rect = el.ideasViewport.getBoundingClientRect();
+  if (cx == null) { cx = rect.width / 2; cy = rect.height / 2; }
+  const next = Math.min(2.5, Math.max(0.25, z));
+  const wx = (cx - ideaPan.x) / ideaPan.zoom, wy = (cy - ideaPan.y) / ideaPan.zoom;
+  ideaPan.zoom = next; ideaPan.x = cx - wx * next; ideaPan.y = cy - wy * next;
+  applyIdeasTransform();
+}
+
+el.ideasViewport.addEventListener("dblclick", (e) => {
+  if (e.target.closest(".idea-note")) return;
+  const p = ideaLayerPoint(e.clientX, e.clientY);
+  addNote(p.x - NOTE_W / 2, p.y - NOTE_H / 2);
+});
+el.ideasViewport.addEventListener("pointerdown", (e) => {
+  if (e.target.closest(".idea-note")) return;
+  e.preventDefault();
+  el.ideasViewport.classList.add("is-panning");
+  const sx = e.clientX, sy = e.clientY, ox = ideaPan.x, oy = ideaPan.y;
+  const move = (ev) => { ideaPan.x = ox + (ev.clientX - sx); ideaPan.y = oy + (ev.clientY - sy); applyIdeasTransform(); };
+  const up = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); el.ideasViewport.classList.remove("is-panning"); };
+  window.addEventListener("pointermove", move); window.addEventListener("pointerup", up);
+});
+el.ideasViewport.addEventListener("wheel", (e) => {
+  if (!(e.ctrlKey || e.metaKey)) return;
+  e.preventDefault();
+  const rect = el.ideasViewport.getBoundingClientRect();
+  setZoom(ideaPan.zoom * (e.deltaY < 0 ? 1.1 : 0.9), e.clientX - rect.left, e.clientY - rect.top);
+}, { passive: false });
+function addNoteAtCenter(typeKey) {
+  const rect = el.ideasViewport.getBoundingClientRect();
+  const p = ideaLayerPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  addNote(p.x - NOTE_W / 2, p.y - NOTE_H / 2, typeKey);
+}
+function buildIdeasTypeMenu() {
+  el.ideasTypeMenu.innerHTML = "";
+  for (const t of NOTE_TYPES) {
+    const item = document.createElement("button");
+    item.type = "button"; item.className = "ideas-type-item"; item.dataset.type = t.key; item.setAttribute("role", "menuitem");
+    const dot = document.createElement("span"); dot.className = "ideas-type-dot"; dot.style.background = t.color;
+    item.appendChild(dot); item.appendChild(document.createTextNode(t.label));
+    el.ideasTypeMenu.appendChild(item);
+  }
+}
+function closeIdeasTypeMenu() {
+  if (el.ideasTypeMenu.hidden) return;
+  el.ideasTypeMenu.hidden = true;
+  el.ideasTypeBtn.setAttribute("aria-expanded", "false");
+}
+buildIdeasTypeMenu();
+el.ideasAdd.addEventListener("click", () => addNoteAtCenter(NOTE_TYPES[0].key));
+el.ideasTypeBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  const open = el.ideasTypeMenu.hidden;
+  el.ideasTypeMenu.hidden = !open;
+  el.ideasTypeBtn.setAttribute("aria-expanded", open ? "true" : "false");
+});
+el.ideasTypeMenu.addEventListener("click", (e) => {
+  const item = e.target.closest(".ideas-type-item"); if (!item) return;
+  addNoteAtCenter(item.dataset.type);
+  closeIdeasTypeMenu();
+});
+document.addEventListener("click", (e) => { if (!el.ideasTypeMenu.hidden && !e.target.closest(".ideas-add-wrap")) closeIdeasTypeMenu(); });
+el.ideasZoomIn.addEventListener("click", () => setZoom(ideaPan.zoom * 1.2));
+el.ideasZoomOut.addEventListener("click", () => setZoom(ideaPan.zoom / 1.2));
+el.ideasZoomReset.addEventListener("click", () => { ideaPan = { x: 40, y: 40, zoom: 1 }; applyIdeasTransform(); });
+
+// ===================== News: developer feed =====================
+
+const NEWS_TTL_MS = 15 * 60 * 1000;
+let newsItems = [];
+
+function newsAge(ts) {
+  if (!ts) return "";
+  const diff = Date.now() - ts;
+  const m = Math.round(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return m + "m ago";
+  const h = Math.round(m / 60);
+  if (h < 24) return h + "h ago";
+  return Math.round(h / 24) + "d ago";
+}
+function aiErrorText(error) {
+  if (error === "no_key") return "Add your Claude API key in Settings → Integrations to use summaries.";
+  if (error === "rate_limited") return "Claude is rate-limited — try again in a moment.";
+  if (error === "overloaded") return "Claude is busy right now — try again shortly.";
+  if (error === "auth") return "Your Claude API key was rejected. Check it in Settings.";
+  return "Couldn’t summarize — please try again.";
+}
+
+function buildNewsItem(item) {
+  const li = document.createElement("li");
+  li.className = "news-item";
+
+  const head = document.createElement("div");
+  head.className = "news-item-head";
+  const badge = document.createElement("span");
+  badge.className = "news-source " + item.source;
+  badge.textContent = item.source === "hn" ? "HN" : "Dev.to";
+  head.appendChild(badge);
+  const a = document.createElement("a");
+  a.className = "news-title"; a.href = item.url; a.target = "_blank"; a.rel = "noopener noreferrer";
+  a.textContent = item.title;
+  head.appendChild(a);
+  li.appendChild(head);
+
+  const meta = document.createElement("div");
+  meta.className = "news-meta";
+  const bits = [];
+  if (item.points) bits.push(`▲ ${item.points}`);
+  if (item.comments) bits.push(`💬 ${item.comments}`);
+  if (item.author) bits.push(item.author);
+  const age = newsAge(item.time);
+  if (age) bits.push(age);
+  meta.appendChild(document.createTextNode(bits.join("  ·  ")));
+  if (item.commentsUrl && item.commentsUrl !== item.url) {
+    const cl = document.createElement("a");
+    cl.className = "news-title"; cl.style.fontSize = "12px"; cl.style.fontWeight = "400";
+    cl.href = item.commentsUrl; cl.target = "_blank"; cl.rel = "noopener noreferrer"; cl.textContent = "comments";
+    meta.appendChild(document.createTextNode("  ·  ")); meta.appendChild(cl);
+  }
+  const sum = document.createElement("button");
+  sum.type = "button"; sum.className = "news-summarize"; sum.textContent = "Summarize";
+  meta.appendChild(sum);
+  li.appendChild(meta);
+
+  sum.addEventListener("click", async () => {
+    let box = li.querySelector(".news-summary");
+    if (!box) { box = document.createElement("div"); box.className = "news-summary"; li.appendChild(box); }
+    box.classList.remove("err"); box.textContent = "Summarizing…";
+    sum.disabled = true;
+    const res = await aiSend("aiSummarize", { title: item.title, url: item.url });
+    if (res && res.ok) { box.textContent = res.text; }
+    else { box.textContent = aiErrorText(res && res.error); box.classList.add("err"); }
+    sum.disabled = false; sum.textContent = "Summarize";
+  });
+
+  return li;
+}
+
+function renderNews(errors) {
+  const list = newsFilter === "all" ? newsItems : newsItems.filter((i) => i.source === newsFilter);
+  el.newsList.innerHTML = "";
+  if (!list.length) {
+    const li = document.createElement("li");
+    li.className = "drawer-empty";
+    li.textContent = (errors && errors.length) ? "Couldn’t load news from " + errors.join(", ") + "." : "No stories to show.";
+    el.newsList.appendChild(li);
+    return;
+  }
+  for (const item of list) el.newsList.appendChild(buildNewsItem(item));
+  if (errors && errors.length) {
+    const li = document.createElement("li");
+    li.className = "drawer-empty";
+    li.textContent = "Couldn’t load: " + errors.join(", ") + ".";
+    el.newsList.appendChild(li);
+  }
+}
+
+async function loadNews(force) {
+  if (!force) {
+    const cache = (await chrome.storage.local.get("newsCache")).newsCache;
+    if (cache && Array.isArray(cache.items)) {
+      newsItems = cache.items;
+      renderNews();
+      if (Date.now() - (cache.ts || 0) < NEWS_TTL_MS) return; // fresh enough
+    }
+  }
+  if (!newsItems.length) el.newsList.innerHTML = '<li class="drawer-empty">Loading developer news…</li>';
+  try {
+    const { items, errors } = await fetchAllNews();
+    if (items.length) {
+      newsItems = items;
+      await chrome.storage.local.set({ newsCache: { items, ts: Date.now() } });
+    }
+    renderNews(errors);
+  } catch (e) {
+    if (!newsItems.length) el.newsList.innerHTML = '<li class="drawer-empty">Couldn’t load news. Check your connection and try Refresh.</li>';
+  }
+}
+
+el.newsFilter.addEventListener("click", (e) => {
+  const t = e.target.closest(".news-src-tab"); if (!t) return;
+  newsFilter = t.dataset.src;
+  el.newsFilter.querySelectorAll(".news-src-tab").forEach((x) => {
+    const on = x.dataset.src === newsFilter;
+    x.classList.toggle("is-active", on);
+    x.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  renderNews();
+});
+el.newsRefresh.addEventListener("click", () => loadNews(true));
 
 // ----------------------------- init -----------------------------
 
 async function init() {
-  const data = await chrome.storage.local.get(["settings", "timer", "board", "boards", "activeBoardId", "globalList", "widgetLayout", "calConnected", "trelloSeeded", "slack", "slackCounts", "gmailConnected", "gmailNotify", "gmailCache", "anthropic"]);
+  const data = await chrome.storage.local.get(["settings", "timer", "board", "boards", "activeBoardId", "globalList", "widgetLayout", "calConnected", "trelloSeeded", "slack", "slackCounts", "gmailConnected", "gmailNotify", "gmailCache", "anthropic", "ideas"]);
   settings = { ...DEFAULT_SETTINGS, ...(data.settings || {}) };
   timer = data.timer || { isRunning: false, isPaused: false, mode: "focus", endTime: null, remaining: settings.focusMin * 60, completedFocusTotal: 0 };
 
@@ -2773,6 +3207,8 @@ async function init() {
   gmailConnected = !!data.gmailConnected;
   gmailNotify = !!data.gmailNotify;
   anthropicCfg = data.anthropic || null;
+  ideas = normalizeIdeas(data.ideas);
+  saveIdeas();
 
   applyTheme();
   renderTimer();
@@ -2786,6 +3222,7 @@ async function init() {
   if (slackConfigured()) send("slackRefresh");
   renderGmail(data.gmailCache || null);
   loadGmail();
+  setView(settings.view || "boards");
 
   // refresh periodically while the tab stays open (daily driver)
   setInterval(() => loadWeather(), 30 * 60 * 1000);

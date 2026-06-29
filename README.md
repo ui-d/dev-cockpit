@@ -4,11 +4,13 @@
 ![Vanilla JS](https://img.shields.io/badge/Vanilla-JS-F7DF1E?logo=javascript&logoColor=black)
 ![No build step](https://img.shields.io/badge/build-none-brightgreen)
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
-![Version](https://img.shields.io/badge/version-2.2.0-orange)
+![Version](https://img.shields.io/badge/version-2.3.0-orange)
 
 A board-first Chrome extension built to be your daily work surface. A slim top bar
 carries a minimal Pomodoro timer, today's Google Calendar, the current weather, and your
-Slack + Gmail unread counts — the rest of the screen is a Trello-style board. Everything
+Slack + Gmail unread counts. Three buttons in the centre of the bar switch the main area
+between **Boards** (Trello-style lists), **Ideas** (a free-form sticky-note canvas), and
+**News** (a developer-news feed) — press **1 / 2 / 3** to jump between them. Everything
 lives on one full-page tab that opens when you click the toolbar icon.
 
 > Screenshots below use the built-in **Zed (One Dark)** theme. DevCockpit ships nine
@@ -24,6 +26,10 @@ calendar, Slack and Gmail on the right:
 
 ## Highlights
 
+- **Views** — three buttons centred in the top bar switch the whole main area between
+  **Boards**, **Ideas**, and **News** (keys **1 / 2 / 3**). The timer and the calendar /
+  weather / Slack / Gmail pills stay live in the bar across all three. Your last-used view is
+  remembered. See [Ideas](#ideas) and [News](#news).
 - **Timer** lives in the top bar: just the number and three controls — start/pause, reset,
   and (in settings) the phase lengths. Focus ↔ break only (no long break). A chime plays at
   every phase transition (the pitch nudges down going into a break, up going back to focus).
@@ -61,6 +67,13 @@ calendar, Slack and Gmail on the right:
   out), so anything you want to keep at hand follows you as you switch boards. Below it sits a small **widget tray** (see
   [Pinned list & widgets](#pinned-list--widgets)). The Slack, Gmail, Calendar and Weather
   panels float over the pinned list when opened.
+- **Ideas** — a free-form, infinitely pannable/zoomable canvas of sticky notes, à la Apple
+  Freeform. Double-click (or **+ Note**) to drop a note, drag it anywhere, resize it, and type
+  inline. The **+ Note ▾** dropdown offers several note types (Sticky, Idea, To-do, Question,
+  Highlight, Plain), each its own colour. See [Ideas](#ideas).
+- **News** — a developer-news feed aggregating **Hacker News** and **Dev.to** into a
+  three-column grid, with source filters and refresh. Each story can be **summarized** by
+  Claude on demand (uses your Anthropic key). See [News](#news).
 - **Themes** — nine base themes (including **Zed / One Dark**, Solarized, Sepia, Midnight
   OLED and a high-contrast dark) plus nine accent colors, or follow your system setting.
 
@@ -108,6 +121,39 @@ Available widgets:
   studio-quality audio (SomaFM, EPIC Classical, nature/rain stations), with a synthesized mix
   as an automatic offline fallback. **Lofi** is instrumental/no-vocal; clicking it again cycles
   through three SomaFM channels before switching off.
+
+## Ideas
+
+Switch to **Ideas** (centre of the top bar, or press **2**) for a free-form sticky-note
+canvas modelled on Apple Freeform:
+
+- **Add a note** — double-click empty canvas, or click **+ Note**. The **▾** next to it opens
+  a menu of note **types** — *Sticky note, Idea, To-do, Question, Highlight, Plain* — each
+  with its own colour; picking one drops that type at the centre.
+- **Move / edit / resize** — drag a note anywhere to move it; a single click inside it places
+  the caret so you can type; drag the bottom-right corner to resize. Hover a note and click
+  **✕** to delete it.
+- **Pan & zoom** — drag empty canvas to pan; **⌘/Ctrl + scroll** (or the **− / + / %**
+  controls) to zoom from 25 % to 250 %; the **%** button resets the view.
+
+Notes are saved per device in `chrome.storage.local` and are included in
+[backups](#backup--restore).
+
+## News
+
+Switch to **News** (top bar, or press **3**) for a developer-news feed. It aggregates the
+**Hacker News** front page and **Dev.to** top articles into a three-column card grid
+(two columns, then one, on narrower windows), newest first.
+
+- **Filter** by source with the **All / Hacker News / Dev.to** tabs; **↻ Refresh** re-fetches.
+- Each card links out (opens in a new tab) and shows points, comments, author, and age.
+- **Summarize** — if you've added an Anthropic API key (see [AI helpers](#ai-helpers-optional)),
+  each card gets a **Summarize** button that asks Claude for a one-to-two-sentence plain-English
+  summary. Without a key, the button explains where to add one.
+
+Both sources are keyless public APIs fetched directly from the page; results are cached
+locally for ~15 minutes so the feed shows instantly on open. Nothing here is stored in
+backups.
 
 ## Weather
 
@@ -199,7 +245,8 @@ Your boards live in this device's local extension storage, so the extension keep
 backups for you. Open settings (gear) → **Backup** → **Backup & restore**:
 
 - **Download backup** writes a `devcockpit-backup-YYYY-MM-DD.json` to your Downloads —
-  a snapshot of all boards and settings you can keep or move to another machine.
+  a snapshot of all boards, your pinned list, the Ideas canvas, and settings that you can
+  keep or move to another machine.
 - **Restore from file…** reads one back. It validates the file first, asks you to
   confirm, and snapshots your current state before overwriting so a restore is undoable.
 - **Auto-save a daily backup to Downloads** (on by default) writes that same file
@@ -208,9 +255,10 @@ backups for you. Open settings (gear) → **Backup** → **Backup & restore**:
   of minutes after you make changes, kept inside the extension. Hit **Restore** on any
   snapshot to roll back an accidental delete or edit.
 
-Backups contain **boards and settings only**. Slack, Google, and Anthropic credentials are
-never written to a backup file or snapshot — after a restore on a new machine you just
-reconnect them once, as in first-time setup.
+Backups contain **boards, the pinned list, the Ideas canvas, and settings only**. Slack,
+Google, and Anthropic credentials — and the cached News feed — are never written to a backup
+file or snapshot; after a restore on a new machine you just reconnect the integrations once,
+as in first-time setup.
 
 ## How it works
 
@@ -220,8 +268,9 @@ build step, no framework, no npm install**. Clone it, load it unpacked, and it r
 ```
 manifest.json        MV3 manifest — permissions, OAuth client, CSP, stable extension key
 background.js        Service worker — timer, badge, chime, notifications, Slack polling, AI, backups
-app.html/.js/.css    Full-page UI — timer, boards, pinned list, widgets, calendar, weather, Slack, Gmail
+app.html/.js/.css    Full-page UI — views (Boards · Ideas · News), timer, pinned list, widgets, calendar, weather, Slack, Gmail
 slack.js             Slack client.counts reader (imported by the worker)
+news.js              Hacker News + Dev.to fetchers/normalizers (imported by the page)
 anthropic.js         Anthropic Messages API client (imported by the worker)
 backup.js            Shared JSON backup format + helpers
 offscreen.html/.js   Plays the chime when no tab is open
@@ -234,8 +283,11 @@ icons/ screenshots/  Extension icons · README images
   and notifications via `chrome.alarms` — so they fire on time even with no tab open. It
   also polls Slack unread counts in the background and runs the AI calls.
 - `slack.js` is the Slack `client.counts` reader (fetch + parse), imported by the worker.
+- `news.js` fetches and normalizes the Hacker News (Algolia) and Dev.to APIs for the News
+  view; it's imported by the page and fetches directly (keyless, CORS-friendly), like weather.
 - `anthropic.js` is the Anthropic Messages API client (imported by the worker) that powers
-  the Slack panel's **Wyjaśnij (PL)** / **Odpowiedz (EN)** buttons.
+  the Slack panel's **Wyjaśnij (PL)** / **Odpowiedz (EN)** buttons and the News **Summarize**
+  button.
 - `app.html` / `app.js` / `app.css` is the full-page UI (timer, board, pinned list &
   widgets, calendar, weather, Slack, Gmail, settings). The Gmail inbox unread count is read
   app-side from the Gmail API `users.labels.get` (INBOX) using the `gmail.metadata` scope.
@@ -249,8 +301,8 @@ icons/ screenshots/  Extension icons · README images
 Declared in `manifest.json`: `storage` (boards, settings, caches), `alarms` (timer &
 background polling), `offscreen` (the chime), `notifications` (timer / Slack / Gmail
 alerts), `identity` (Google sign-in), `cookies` (the Slack `d` cookie), and `downloads`
-(backup files). Host access is limited to Open-Meteo, Google APIs, Slack, and the Anthropic
-API.
+(backup files). Host access is limited to Open-Meteo, Google APIs, Slack, the Anthropic
+API, and the Hacker News (Algolia) and Dev.to APIs that feed the News view.
 
 ## License
 

@@ -7,7 +7,7 @@
 // top-bar pill, toolbar badge, and desktop alerts work without a tab open.
 
 import { fetchCounts, combineUnread, conversationKey, fetchUnreadMessages } from "./slack.js";
-import { explainMessagePL, draftReplyEN, DEFAULT_MODEL } from "./anthropic.js";
+import { explainMessagePL, draftReplyEN, summarizeArticleEN, DEFAULT_MODEL } from "./anthropic.js";
 import { BACKUP_DATA_KEYS, MAX_SNAPSHOTS, buildBackup, fingerprint, backupFileName } from "./backup.js";
 
 const ALARM_COMPLETE = "ff-complete";
@@ -225,9 +225,15 @@ async function runAiTask(kind, payload) {
   const { anthropic } = await chrome.storage.local.get("anthropic");
   const cfg = { apiKey: anthropic && anthropic.apiKey, model: (anthropic && anthropic.model) || DEFAULT_MODEL };
   if (!cfg.apiKey) return { ok: false, error: "no_key" };
-  if (!payload || !payload.text) return { ok: false, error: "no_message" };
   try {
-    const text = kind === "explain" ? await explainMessagePL(cfg, payload) : await draftReplyEN(cfg, payload);
+    let text;
+    if (kind === "summarize") {
+      if (!payload || !payload.title) return { ok: false, error: "no_message" };
+      text = await summarizeArticleEN(cfg, payload);
+    } else {
+      if (!payload || !payload.text) return { ok: false, error: "no_message" };
+      text = kind === "explain" ? await explainMessagePL(cfg, payload) : await draftReplyEN(cfg, payload);
+    }
     return { ok: true, text };
   } catch (e) {
     return { ok: false, error: (e && e.message) || "ai_error" };
@@ -483,6 +489,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case "slackDisconnect": await slackDisconnect(); break;
       case "aiExplain": result = await runAiTask("explain", msg.payload); break;
       case "aiDraft": result = await runAiTask("draft", msg.payload); break;
+      case "aiSummarize": result = await runAiTask("summarize", msg.payload); break;
       case "snapshotNow": await takeSnapshot({ auto: false }); break;
     }
     sendResponse(result || { ok: true });

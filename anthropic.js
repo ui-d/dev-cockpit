@@ -64,6 +64,17 @@ export async function explainMessagePL(cfg, { sender, text, channelTitle }) {
   return callAnthropic(cfg, { system, user, maxTokens: 512 });
 }
 
+/** Summarize a developer-news story from its title (URL given for context). */
+export async function summarizeArticleEN(cfg, { title, url }) {
+  const system =
+    "You summarize developer-news headlines for a busy engineer. Given a story title " +
+    "(and its URL for context), explain in 1–2 plain-English sentences what the story is " +
+    "likely about and why a developer might care. If the title is too vague to be sure, say so " +
+    "briefly. Return ONLY the summary — no preamble, no quotation marks.";
+  const user = `Title: ${title}\nURL: ${url || "—"}`;
+  return callAnthropic(cfg, { system, user, maxTokens: 300 });
+}
+
 /** Draft an English reply the user can send as-is. */
 export async function draftReplyEN(cfg, { sender, text, channelTitle }) {
   const system =

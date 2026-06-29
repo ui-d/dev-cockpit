@@ -24,8 +24,8 @@ code, not using the app.
 - **Never commit or back up secrets.** Anthropic API keys, Slack tokens/cookies, and Google
   OAuth tokens live only in `chrome.storage.local`. They must never be logged, echoed into a
   field, or written into a backup file/snapshot. The backup allowlist is `BACKUP_DATA_KEYS`
-  in `backup.js` (`boards`, `activeBoardId`, `settings`, `globalList`) — keep credential keys
-  out of it.
+  in `backup.js` (`boards`, `activeBoardId`, `settings`, `globalList`, `ideas`) — keep
+  credential keys (and regenerable caches like `newsCache`) out of it.
 - **Keep the extension ID stable.** The fixed `key` in `manifest.json` pins the ID to
   `aiegllbeihjbphiilgeifggceklfffkn`, which the Google OAuth client is bound to. Don't remove
   or change `key`.
@@ -39,8 +39,9 @@ code, not using the app.
 |------|------|
 | `manifest.json` | MV3 manifest: permissions, host permissions, OAuth client, CSP, stable `key`. |
 | `background.js` | Service worker. Timer phase transitions, toolbar badge, chime + notifications via `chrome.alarms`; background Slack polling; Anthropic AI calls; rolling snapshots + daily auto-backup. |
-| `app.html` / `app.js` / `app.css` | The full-page UI (timer, boards, pinned list, widgets, calendar, weather, Slack, Gmail, settings). `app.js` is large (~2.8k lines) but split into clearly labelled sections. |
+| `app.html` / `app.js` / `app.css` | The full-page UI. Three top-bar views — **Boards**, **Ideas** (free-form sticky-note canvas), **News** (HN + Dev.to feed) — plus timer, pinned list, widgets, calendar, weather, Slack, Gmail, settings. `app.js` is large (~3k lines) but split into clearly labelled sections. |
 | `slack.js` | Slack `client.counts` reader (fetch + parse). Imported by the worker. |
+| `news.js` | Hacker News (Algolia) + Dev.to fetchers/normalizers for the News view. Imported by the **page** and fetched directly (keyless, CORS-friendly), like weather. |
 | `anthropic.js` | Anthropic Messages API client powering the Slack panel's PL-explain / EN-reply buttons. |
 | `backup.js` | Shared JSON backup format + helpers (`buildBackup`, `readBackup`, `fingerprint`). Defines `BACKUP_DATA_KEYS`. |
 | `offscreen.html` / `offscreen.js` | Offscreen document that plays the chime when no tab is open. |
@@ -59,15 +60,28 @@ code, not using the app.
 - **`app.js` section dividers** (`// ----- timer -----`, `// ----- soundscape widget -----`,
   etc.) are the table of contents — grep them to navigate. Keep new code inside the right
   section and add a divider for a genuinely new area.
+- **Top-bar views.** `setView('boards'|'ideas'|'news')` toggles the three main containers
+  (`#workspace`, `#ideasView`, `#newsView`) by setting their `hidden` attribute and persists
+  the choice to `settings.view`. Because each view sets `display:flex`, `[hidden]` is re-forced
+  to `display:none` in CSS (a plain `[hidden]` UA rule would lose to the author `display`).
+  Adding a view means: a `.view-tab` button, a container, a branch in `setView`, and (if it has
+  state) a storage key + `BACKUP_DATA_KEYS` entry.
+- **Ideas vs. News data flow.** Ideas is local state (`ideas` in storage, immutable updates,
+  `saveIdeas()`); an `ideasMutating` flag suppresses our own `onChanged` re-render so a note
+  being typed in isn't wiped. News is fetched from public APIs via `news.js` straight from the
+  page (no worker round-trip) and cached in `newsCache`; the per-story **Summarize** button is
+  the one News→worker call (`aiSummarize` → `runAiTask('summarize')` → `anthropic.js`).
 - **Legacy name.** The project was renamed FocusFlow → DevCockpit. `chrome.alarms` are still
   prefixed `ff-`, and `backup.js` accepts `focusflow` backups via `LEGACY_BACKUP_APPS`. Don't
   "fix" these names — they preserve compatibility with existing installs.
 
 ## Storage keys (chrome.storage.local)
 
-`settings`, `timer`, `boards`, `activeBoardId`, `globalList`, `widgetLayout`,
-`slack` (creds), `slackCounts`, `slackUsers`, `slackConvos`, `anthropic` (creds), `backups`
-(rolling snapshots), `lastAutoBackup`. Backups serialize only `BACKUP_DATA_KEYS`.
+`settings` (includes `view`, the last-active top-bar view), `timer`, `boards`,
+`activeBoardId`, `globalList`, `widgetLayout`, `ideas` (Ideas canvas: `{ canvases, activeId }`),
+`newsCache` (regenerable News feed, ~15 min TTL), `slack` (creds), `slackCounts`, `slackUsers`,
+`slackConvos`, `anthropic` (creds), `backups` (rolling snapshots), `lastAutoBackup`. Backups
+serialize only `BACKUP_DATA_KEYS`.
 
 ## Conventions
 

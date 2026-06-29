@@ -35,6 +35,13 @@
         </div>
       </div>
 
+      <!-- Centered view switcher: Boards · Ideas · News -->
+      <nav class="view-nav" id="viewNav" role="tablist" aria-label="Views">
+        <button type="button" class="view-tab is-active" data-view="boards" role="tab" aria-selected="true">Boards</button>
+        <button type="button" class="view-tab" data-view="ideas" role="tab" aria-selected="false">Ideas</button>
+        <button type="button" class="view-tab" data-view="news" role="tab" aria-selected="false">News</button>
+      </nav>
+
       <div class="bar-spacer"></div>
 
       <!-- Calendar -->
@@ -63,7 +70,7 @@
     </header>
 
     <!-- ===================== WORKSPACE: board + board rail ===================== -->
-    <div class="workspace">
+    <div class="workspace" id="workspace">
       <!-- Left-side rail of board icons (Personal · Work · Lifestyle …) -->
       <nav class="board-rail" id="boardRail" aria-label="Boards"></nav>
       <main class="board-wrap">
@@ -72,6 +79,38 @@
       <!-- Always-visible pinned list — shared across every board -->
       <aside class="global-list" id="globalList" aria-label="Pinned list"></aside>
     </div>
+
+    <!-- ===================== IDEAS: free-form sticky-note canvas ===================== -->
+    <main class="view-ideas" id="ideasView" hidden>
+      <div class="ideas-toolbar">
+        <div class="ideas-add-wrap">
+          <button type="button" class="btn btn-soft sm ideas-add-main" id="ideasAddBtn" title="Add note (double-click canvas)">+ Note</button>
+          <button type="button" class="btn btn-soft sm ideas-type-caret" id="ideasTypeBtn" aria-haspopup="true" aria-expanded="false" aria-label="Choose note type">▾</button>
+          <div class="ideas-type-menu" id="ideasTypeMenu" role="menu" hidden></div>
+        </div>
+        <span class="ideas-tool-sep" aria-hidden="true"></span>
+        <button type="button" class="ti ideas-zoom-btn" id="ideasZoomOut" aria-label="Zoom out" title="Zoom out">−</button>
+        <button type="button" class="ideas-zoom-label" id="ideasZoomReset" title="Reset zoom">100%</button>
+        <button type="button" class="ti ideas-zoom-btn" id="ideasZoomIn" aria-label="Zoom in" title="Zoom in">+</button>
+        <span class="ideas-hint">Double-click to add · drag to move · drag empty space to pan · ⌘/Ctrl+scroll to zoom</span>
+      </div>
+      <div class="ideas-viewport" id="ideasViewport">
+        <div class="ideas-layer" id="ideasLayer"></div>
+      </div>
+    </main>
+
+    <!-- ===================== NEWS: developer news feed ===================== -->
+    <main class="view-news" id="newsView" hidden>
+      <div class="news-head">
+        <nav class="news-filter" id="newsFilter" role="tablist" aria-label="News sources">
+          <button type="button" class="news-src-tab is-active" data-src="all" role="tab" aria-selected="true">All</button>
+          <button type="button" class="news-src-tab" data-src="hn" role="tab" aria-selected="false">Hacker News</button>
+          <button type="button" class="news-src-tab" data-src="devto" role="tab" aria-selected="false">Dev.to</button>
+        </nav>
+        <button type="button" class="link-btn" id="newsRefresh" title="Refresh">↻ Refresh</button>
+      </div>
+      <ul class="news-list" id="newsList"></ul>
+    </main>
 
     <!-- ===================== SETTINGS DIALOG ===================== -->
     <dialog class="dlg" id="settingsDialog">
