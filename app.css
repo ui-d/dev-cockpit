@@ -508,8 +508,10 @@ body.running #startPauseBtn .i-pause { display: block; }
 .widget-empty-label { font-size: 10.5px; letter-spacing: .3px; }
 
 /* work clock — analog tile with a gradient band marking the working-hours window */
-.work-clock { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.wc-face { width: 116px; height: 116px; display: block; }
+.work-clock { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; flex: 1; align-self: stretch; min-height: 0; width: 100%; }
+/* Face fills the remaining tile space; the SVG viewBox keeps the dial square and
+   centered, so it scales to the largest circle that fits the widget at any size. */
+.wc-face { flex: 1 1 auto; min-height: 0; width: 100%; height: 100%; display: block; }
 .wc-rim { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
 .wc-tick { stroke: var(--text-faint); }
 .wc-num { fill: var(--text-muted); font: 600 7px/1 var(--mono); user-select: none; }
