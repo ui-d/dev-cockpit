@@ -30,7 +30,7 @@ const DEFAULT_SETTINGS = {
   sound: "gong", // gong | bell | beep | none
   volume: 0.7,
   notify: true,
-  theme: "auto", // auto | dark | light
+  theme: "zed", // must match DEFAULT_SETTINGS.theme in app.js (worker seeds settings on install)
   // location for weather (set by the user)
   city: "",
   lat: null,

@@ -184,6 +184,9 @@ body.running #startPauseBtn .i-pause { display: block; }
 .pill-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pill.now { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
 .pill.now .pill-text { color: var(--text); }
+/* Read-only notification pills (Slack, Gmail) — display only, not clickable. */
+.pill-static { cursor: default; }
+.pill-static:hover { border-color: var(--line-soft); background: var(--surface-2); }
 .wx-icon { font-size: 15px; line-height: 1; }
 
 /* popovers */
@@ -484,7 +487,10 @@ body.running #startPauseBtn .i-pause { display: block; }
 .widget-tray-manage:hover { color: var(--text); background: var(--surface-2); }
 .global-widgets {
   flex: 1; min-height: 0;
-  display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: 10px;
+  /* Widgets stack full-width in a single column (1–3 placed) and switch to two
+     columns for a 2×2 grid at four. --widget-cols is set from the placed count in
+     buildWidgetTray; empty slots never reserve dead space. */
+  display: grid; grid-template-columns: repeat(var(--widget-cols, 1), 1fr); grid-auto-rows: 1fr; gap: 10px;
   padding: 0 11px 11px; overflow-y: auto; scrollbar-width: thin;
 }
 .widget-slot {
@@ -506,6 +512,7 @@ body.running #startPauseBtn .i-pause { display: block; }
 .wc-face { width: 116px; height: 116px; display: block; }
 .wc-rim { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
 .wc-tick { stroke: var(--text-faint); }
+.wc-num { fill: var(--text-muted); font: 600 7px/1 var(--mono); user-select: none; }
 .wc-tick-end { stroke: var(--accent); }
 .wc-end-dot { fill: var(--accent); }
 /* working-hours gradient band: sage (fresh) → amber → ember (deadline) */
@@ -749,7 +756,7 @@ input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); ou
 /* ===================== top-bar view switcher ===================== */
 .view-nav {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  display: flex; gap: 2px;
+  display: flex; gap: 6px;
   background: var(--surface-2); border: 1px solid var(--line-soft);
   border-radius: 999px; padding: 3px;
 }

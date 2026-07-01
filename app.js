@@ -15,7 +15,7 @@ const DEFAULT_SETTINGS = {
   sound: "gong",
   volume: 0.7,
   notify: true,
-  theme: "auto",
+  theme: "zed",
   accent: "ember",
   city: "",
   lat: null,
@@ -1303,6 +1303,13 @@ function buildWorkClockWidget() {
     return `<line class="${cls}" x1="${outer.x.toFixed(2)}" y1="${outer.y.toFixed(2)}" x2="${inner.x.toFixed(2)}" y2="${inner.y.toFixed(2)}" stroke-width="${w}" stroke-linecap="round" />`;
   }).join("");
 
+  // Hour numerals (12 at top, clockwise) sit just inside the tick ring.
+  const numerals = Array.from({ length: 12 }, (_, i) => {
+    const hour = i === 0 ? 12 : i;
+    const p = clockPoint(50, 50, 32, i * 30);
+    return `<text class="wc-num" x="${p.x.toFixed(2)}" y="${p.y.toFixed(2)}" text-anchor="middle" dominant-baseline="central">${hour}</text>`;
+  }).join("");
+
   // 5 PM marker dot sits just inside the rim at the 5 o'clock position.
   const endDot = clockPoint(50, 50, 44, (WORK_END_HOUR % 12) * 30);
 
@@ -1326,6 +1333,7 @@ function buildWorkClockWidget() {
       <path class="wc-band" d="${bandPath}" fill="none" stroke="url(#wcGrad)" stroke-linecap="round" />
       <path id="wcElapsed" class="wc-elapsed" fill="none" stroke-linecap="round" />
       ${ticks}
+      ${numerals}
       <circle cx="${endDot.x.toFixed(2)}" cy="${endDot.y.toFixed(2)}" r="2.4" class="wc-end-dot" />
       <line id="wcHour" class="wc-hand wc-hour" x1="50" y1="50" x2="50" y2="27" stroke-linecap="round" />
       <line id="wcMin" class="wc-hand wc-min" x1="50" y1="50" x2="50" y2="18" stroke-linecap="round" />
@@ -1813,7 +1821,9 @@ function normalizeWidgetLayout(raw) {
 }
 async function saveWidgetLayout() { await chrome.storage.local.set({ widgetLayout }); }
 
-// Build the 2×2 tray from the current layout. Empty slots open the manager when clicked.
+// Build the widget tray from the current layout. Widgets stack full-width (1st, then
+// 2nd under it, then 3rd) and only reflow into a 2×2 grid once four are placed. Empty
+// slots open the manager when clicked.
 function buildWidgetTray() {
   const tray = document.createElement("div");
   tray.className = "widget-tray";
@@ -1829,21 +1839,30 @@ function buildWidgetTray() {
 
   const grid = document.createElement("div");
   grid.className = "global-widgets";
-  widgetLayout.forEach((id, i) => {
-    const slot = document.createElement("div");
-    slot.className = "widget-slot"; slot.dataset.slot = String(i + 1);
-    const w = id && WIDGET_REGISTRY[id];
-    if (w) {
-      slot.classList.add("widget-filled");
+
+  // Render only the widgets actually placed. They stack full-width until the fourth
+  // is added, at which point the tray becomes a 2×2 grid. Empty layout slots no
+  // longer reserve dead space; adding/removing is done from the manager (⚙).
+  const placedIds = widgetLayout.filter((id) => id && WIDGET_REGISTRY[id]);
+  if (placedIds.length === 0) {
+    // Nothing placed — a single full-width tile invites adding the first widget.
+    const add = document.createElement("div");
+    add.className = "widget-slot widget-empty";
+    add.innerHTML = `<span class="widget-empty-mark" aria-hidden="true">+</span><span class="widget-empty-label">${t("widget.addWidget")}</span>`;
+    add.addEventListener("click", openWidgetManager);
+    grid.appendChild(add);
+  } else {
+    placedIds.forEach((id, i) => {
+      const w = WIDGET_REGISTRY[id];
+      const slot = document.createElement("div");
+      slot.className = "widget-slot widget-filled"; slot.dataset.slot = String(i + 1);
       if (id === "soundscapes") slot.classList.add("widget-music-slot");
       slot.appendChild(w.build());
-    } else {
-      slot.classList.add("widget-empty");
-      slot.innerHTML = `<span class="widget-empty-mark" aria-hidden="true">+</span><span class="widget-empty-label">${t("widget.addWidget")}</span>`;
-      slot.addEventListener("click", openWidgetManager);
-    }
-    grid.appendChild(slot);
-  });
+      grid.appendChild(slot);
+    });
+  }
+  // One column while stacking (1–3 widgets); two columns for the 2×2 grid at four.
+  grid.style.setProperty("--widget-cols", placedIds.length >= 4 ? "2" : "1");
 
   tray.append(head, grid);
   return tray;
@@ -1993,9 +2012,8 @@ function drawerMsg(text, cls = "drawer-empty") {
   el.drawerBody.appendChild(d);
 }
 
+// Slack + Gmail pills are read-only top-bar notifications now — no drawer.
 el.calPill.addEventListener("click", (e) => { e.stopPropagation(); openDrawer("cal"); });
-el.slackPill.addEventListener("click", (e) => { e.stopPropagation(); openDrawer("slack"); });
-el.gmailPill.addEventListener("click", (e) => { e.stopPropagation(); openDrawer("gmail"); });
 el.drawerClose.addEventListener("click", closeDrawer);
 el.drawerOverlay.addEventListener("click", closeDrawer);
 el.drawerRefresh.addEventListener("click", () => loadDrawer(true));
@@ -2024,6 +2042,7 @@ async function loadCalendarDrawer(force) {
     }
     if (drawerSource === "cal") renderCalendarDrawer(events);
   } catch (e) {
+    console.error("[DevCockpit] calendar drawer load failed:", (e && e.message) || e, e);
     if (drawerSource === "cal") drawerMsg(t("drawer.calError"));
   }
 }
@@ -2058,7 +2077,7 @@ function renderCalDrawerSection(label, list, now) {
     const time = document.createElement("div"); time.className = "cal-time";
     time.textContent = e.allDay ? t("cal.allDay") : `${fmtT(e.startMs)}–${fmtT(e.endMs)}`;
     const body = document.createElement("div");
-    const t = document.createElement("div"); t.className = "cal-title"; t.textContent = e.title; body.appendChild(t);
+    const titleEl = document.createElement("div"); titleEl.className = "cal-title"; titleEl.textContent = e.title; body.appendChild(titleEl);
     const det = document.createElement("div"); det.className = "cal-ev-detail";
     if (e.location) { const m = document.createElement("div"); m.textContent = "📍 " + e.location; det.appendChild(m); }
     if (e.attendees && e.attendees.length) {
@@ -2101,7 +2120,11 @@ async function gmailAuthedFetch(url) {
     if (!token) throw new Error("auth expired");
     r = await fetch(url, { headers: { Authorization: "Bearer " + token } });
   }
-  if (!r.ok) throw new Error("gmail http " + r.status);
+  if (!r.ok) {
+    const body = await r.text().catch(() => "");
+    console.error("[DevCockpit] gmail API " + r.status + ":", body);
+    throw new Error("gmail http " + r.status);
+  }
   return r.json();
 }
 function gmailParseFrom(v) {
@@ -2153,6 +2176,7 @@ async function loadGmailDrawer(force) {
     }
     if (drawerSource === "gmail") renderGmailDrawer(messages);
   } catch (e) {
+    console.error("[DevCockpit] gmail drawer load failed:", (e && e.message) || e, e);
     if (drawerSource === "gmail") drawerMsg(t("drawer.gmailError"));
   }
 }
@@ -2506,7 +2530,7 @@ async function loadCalendar(force = false) {
     const events = await calFetchEvents(token);
     await chrome.storage.local.set({ calCache: { events, ts: Date.now() } });
     renderCalendar(events);
-  } catch (e) { renderCalIdle(t("cal.dash")); }
+  } catch (e) { console.error("[DevCockpit] calendar load failed:", (e && e.message) || e, e); renderCalIdle(t("cal.dash")); }
 }
 
 function renderCalSettings() {
@@ -2651,7 +2675,11 @@ async function gmailFetchUnread(token) {
     if (!t2) throw new Error("auth expired");
     r = await fetch(GMAIL_INBOX_URL, { headers: { Authorization: "Bearer " + t2 } });
   }
-  if (!r.ok) throw new Error("gmail http " + r.status);
+  if (!r.ok) {
+    const body = await r.text().catch(() => "");
+    console.error("[DevCockpit] gmail API " + r.status + ":", body);
+    throw new Error("gmail http " + r.status);
+  }
   const j = await r.json();
   return { unread: toCount(j.messagesUnread), threadsUnread: toCount(j.threadsUnread) };
 }
@@ -2685,6 +2713,7 @@ async function loadGmail(force = false) {
     maybeNotifyGmail(prev, snap);
   } catch (e) {
     const msg = (e && e.message) || "";
+    console.error("[DevCockpit] gmail load failed:", msg || e, e);
     renderGmail({ error: /auth|token/i.test(msg) ? "auth" : "fetch", ts: Date.now() });
   }
 }
