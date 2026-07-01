@@ -129,6 +129,13 @@ across boards. Below it, a four-slot **widget tray** holds a **Work clock** (ana
 band counting down to 5 PM) and **Soundscapes** (Lofi · Ambient · Piano · Nature · Rain, real
 internet-radio streams with an offline synth fallback). Rearrange them in **Manage widgets**.</sub>
 
+<sub>**Bring your own music:** in **Settings → Timer → Soundscape links** you can paste a **YouTube**
+link (video or playlist) onto any of the five buttons. That button then plays your link instead of
+the built-in sound and shows a **▸** marker; clear the field to restore the default. Use **Test** to
+check a link before saving. Playback is audio-only and runs **only while the DevCockpit tab is open**;
+a few videos have embedding disabled by their uploader and won't play. Your links are saved on this
+device and travel with backups (no credentials are ever included).</sub>
+
 <table>
 <tr>
 <td width="40%" valign="top"><img src="screenshots/widgets.png" alt="Widget tray: analog work clock and the Soundscapes player" width="100%"><br><div align="center"><sub>Work clock + Soundscapes</sub></div></td>

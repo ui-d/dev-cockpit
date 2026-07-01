@@ -31,7 +31,9 @@ code, not using the app.
   or change `key`.
 - **CSP is strict.** `manifest.json` sets `content_security_policy` for extension pages.
   Adding a new audio/media source (e.g. a soundscape stream) means adding its origin to
-  `media-src`. No remote scripts — `script-src 'self'` only.
+  `media-src`. Embedded players go in `frame-src` instead — the soundscape custom-link
+  feature embeds a hidden YouTube IFrame (`https://www.youtube-nocookie.com`), building the
+  embed URL by hand so no remote script loads. No remote scripts — `script-src 'self'` only.
 
 ## File map
 
@@ -91,7 +93,8 @@ code, not using the app.
 
 ## Storage keys (chrome.storage.local)
 
-`settings` (includes `view`, the last-active top-bar view, and `language`, `'en'|'pl'`), `timer`, `boards`,
+`settings` (includes `view`, the last-active top-bar view; `language`, `'en'|'pl'`; and
+`soundscapeUrls`, per-scene custom YouTube links `{ lofi, ambient, … }`), `timer`, `boards`,
 `activeBoardId`, `globalList`, `widgetLayout`, `ideas` (Ideas canvas: `{ canvases, activeId }`),
 `newsCache` (regenerable News feed, ~15 min TTL), `slack` (creds), `slackCounts`, `slackUsers`,
 `slackConvos`, `anthropic` (creds), `backups` (rolling snapshots), `lastAutoBackup`. Backups

@@ -76,6 +76,8 @@ const EN = {
   "toast.autostartOff": "Auto-start off ⏸",
   "toast.theme": "Theme: {name}",
   "toast.streamUnavailable": "Stream unavailable — playing offline mix",
+  "toast.youtubePlaying": "Playing your YouTube link ▸",
+  "toast.badYouTubeUrl": "That doesn't look like a YouTube link",
 
   // ----- shortcut cheat sheet -----
   "sc.title": "Keyboard shortcuts",
@@ -154,6 +156,9 @@ const EN = {
   "settings.volume": "Volume",
   "settings.desktopNotif": "Desktop notification",
   "settings.preview": "Preview",
+  "settings.test": "Test",
+  "settings.soundscapeLinks": "Soundscape links",
+  "settings.soundscapeLinksHint": "Paste a YouTube link to make a Soundscape button play it instead of the built-in sound. Plays only while this tab is open; some videos block embedding.",
   "settings.weather": "Weather",
   "settings.city": "City",
   "settings.cityPlaceholder": "e.g. Toruń",
@@ -265,6 +270,7 @@ const EN = {
   "scene.nature": "Nature",
   "scene.rain": "Rain",
   "scene.play": "Play {name}",
+  "scene.customTitle": "Plays your custom YouTube link",
 
   // ----- weather -----
   "wx.weather": "Weather",
@@ -450,6 +456,8 @@ const PL = {
   "toast.autostartOff": "Auto-start wyłączony ⏸",
   "toast.theme": "Motyw: {name}",
   "toast.streamUnavailable": "Strumień niedostępny — odtwarzam wersję offline",
+  "toast.youtubePlaying": "Odtwarzam Twój link z YouTube ▸",
+  "toast.badYouTubeUrl": "To nie wygląda na link z YouTube",
 
   // ----- shortcut cheat sheet -----
   "sc.title": "Skróty klawiszowe",
@@ -528,6 +536,9 @@ const PL = {
   "settings.volume": "Głośność",
   "settings.desktopNotif": "Powiadomienie systemowe",
   "settings.preview": "Odtwórz",
+  "settings.test": "Testuj",
+  "settings.soundscapeLinks": "Linki do dźwięków",
+  "settings.soundscapeLinksHint": "Wklej link z YouTube, aby przycisk Dźwięków odtwarzał go zamiast wbudowanego dźwięku. Działa tylko gdy ta karta jest otwarta; niektóre filmy blokują osadzanie.",
   "settings.weather": "Pogoda",
   "settings.city": "Miasto",
   "settings.cityPlaceholder": "np. Toruń",
@@ -639,6 +650,7 @@ const PL = {
   "scene.nature": "Natura",
   "scene.rain": "Deszcz",
   "scene.play": "Odtwórz {name}",
+  "scene.customTitle": "Odtwarza Twój link z YouTube",
 
   // ----- weather -----
   "wx.weather": "Pogoda",

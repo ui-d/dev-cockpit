@@ -23,6 +23,7 @@ const DEFAULT_SETTINGS = {
   autoBackupFile: true,
   view: "boards",
   language: detectLang(),
+  soundscapeUrls: {},
 };
 
 const $ = (s) => document.querySelector(s);
@@ -437,8 +438,52 @@ function openSettings() {
   renderAnthropicSettings();
   el.autoBackupFile.checked = settings.autoBackupFile !== false;
   renderBackupHistory();
+  renderSoundscapeLinks();
   setSettingsTab("timer");
   el.settingsDialog.showModal();
+}
+
+// Build one URL row per soundscape scene into #soundscapeLinks, prefilled from
+// settings.soundscapeUrls. Each row can Test (play the pasted link) or Clear itself.
+function renderSoundscapeLinks() {
+  const box = document.getElementById("soundscapeLinks");
+  if (!box) return;
+  const urls = settings.soundscapeUrls || {};
+  box.innerHTML = "";
+  MUSIC_SCENES.forEach((s) => {
+    const row = document.createElement("div");
+    row.className = "ss-link-row";
+    const name = document.createElement("span");
+    name.className = "ss-link-name";
+    name.textContent = t(`scene.${s.key}`);
+    const input = document.createElement("input");
+    input.type = "url";
+    input.dataset.scene = s.key;
+    input.placeholder = "https://youtu.be/…";
+    input.autocomplete = "off";
+    input.value = urls[s.key] || "";
+    input.addEventListener("input", () => input.classList.remove("invalid"));
+    const test = document.createElement("button");
+    test.type = "button";
+    test.className = "btn btn-soft sm";
+    test.textContent = t("settings.test");
+    test.addEventListener("click", () => {
+      const parsed = parseYouTube(input.value);
+      if (!parsed) { input.classList.add("invalid"); flashToast(t("toast.badYouTubeUrl")); return; }
+      input.classList.remove("invalid");
+      musicStop();
+      activeScene = s.key; musicScene = s.key;
+      startYouTube(s.key, parsed);
+      refreshMusicUI();
+    });
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "btn btn-ghost sm";
+    clear.textContent = t("settings.clear");
+    clear.addEventListener("click", () => { input.value = ""; input.classList.remove("invalid"); });
+    row.append(name, input, test, clear);
+    box.appendChild(row);
+  });
 }
 
 // Switch which settings tab panel is visible.
@@ -472,7 +517,24 @@ function readSettingsForm() {
     accent: el.accent.value,
     language: el.language.value,
     autoBackupFile: el.autoBackupFile.checked,
+    soundscapeUrls: readSoundscapeLinks(),
   };
+}
+
+// Collect the soundscape URL inputs, keeping only YouTube links parseYouTube accepts.
+// Non-empty values that don't parse are flagged inline and reported once via toast, so a
+// bad paste is never silently saved. Empty rows are simply omitted.
+function readSoundscapeLinks() {
+  const out = {};
+  let bad = false;
+  document.querySelectorAll("#soundscapeLinks input[data-scene]").forEach((input) => {
+    const val = input.value.trim();
+    if (!val) { input.classList.remove("invalid"); return; }
+    if (parseYouTube(val)) { input.classList.remove("invalid"); out[input.dataset.scene] = val; }
+    else { input.classList.add("invalid"); bad = true; }
+  });
+  if (bad) flashToast(t("toast.badYouTubeUrl"));
+  return out;
 }
 
 el.settingsForm.addEventListener("submit", async (e) => {
@@ -485,6 +547,7 @@ el.settingsForm.addEventListener("submit", async (e) => {
   if (settings.language !== prevLang) applyLanguage();
   send("settingsChanged");
   renderTimer();
+  refreshMusicUI();
   if (`${settings.lat},${settings.lon}` !== prevLoc && settings.lat != null) loadWeather(true);
 });
 
@@ -1683,7 +1746,72 @@ const STREAM_SCENES = {
 let streamAudio = null;
 let streamStationIdx = 0;
 let activeScene = null;     // scene currently sounding (null = stopped)
-let activeEngine = null;    // "stream" | "synth"
+let activeEngine = null;    // "stream" | "synth" | "youtube"
+
+// A scene can be overridden with a user-pasted YouTube link (settings.soundscapeUrls).
+// YouTube gives no raw media URL, so it can't ride the <audio> engine above — instead we
+// embed a hidden, autoplaying IFrame player (created on play, torn down on stop). The embed
+// URL is built by hand so no remote script loads (script-src stays 'self'); only frame-src
+// is added to the CSP. Audio-only means the frame is off-screen but still sounding.
+const YT_HOSTS = new Set([
+  "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com",
+  "youtu.be", "www.youtu.be", "youtube-nocookie.com", "www.youtube-nocookie.com",
+]);
+const YT_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+const YT_LIST_RE = /^[A-Za-z0-9_-]+$/;
+
+// Parse a pasted string into { videoId } or { listId }, or null if it isn't a YouTube link
+// we can embed. Validates at the boundary — never trust the pasted value downstream.
+function parseYouTube(raw) {
+  const s = (raw || "").trim();
+  if (!s) return null;
+  let u;
+  try { u = new URL(s); } catch { return null; }
+  if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+  if (!YT_HOSTS.has(u.hostname)) return null;
+
+  const list = u.searchParams.get("list");
+  // youtu.be/<id>
+  if (u.hostname === "youtu.be" || u.hostname === "www.youtu.be") {
+    const id = u.pathname.slice(1).split("/")[0];
+    if (YT_ID_RE.test(id)) return { videoId: id };
+  }
+  // watch?v=<id>
+  const v = u.searchParams.get("v");
+  if (v && YT_ID_RE.test(v)) return { videoId: v };
+  // /embed/<id> and /shorts/<id>
+  const m = u.pathname.match(/^\/(?:embed|shorts|v)\/([A-Za-z0-9_-]{11})/);
+  if (m) return { videoId: m[1] };
+  // Pure playlist link (no single video)
+  if (list && YT_LIST_RE.test(list)) return { listId: list };
+  return null;
+}
+
+let ytFrame = null;
+
+// Build the hidden embed URL and start playback. Called from a click handler so the user
+// activation carries into the iframe and autoplay-with-sound is allowed.
+function startYouTube(scene, parsed) {
+  stopYouTube();
+  const base = "https://www.youtube-nocookie.com/embed/";
+  const url = parsed.videoId
+    ? `${base}${parsed.videoId}?autoplay=1&loop=1&playlist=${parsed.videoId}&playsinline=1`
+    : `${base}videoseries?list=${parsed.listId}&autoplay=1&loop=1&playsinline=1`;
+  const frame = document.createElement("iframe");
+  frame.className = "yt-audio-frame";
+  frame.allow = "autoplay; encrypted-media";
+  frame.setAttribute("aria-hidden", "true");
+  frame.tabIndex = -1;
+  frame.src = url;
+  document.body.appendChild(frame);
+  ytFrame = frame;
+  activeEngine = "youtube";
+  flashToast(t("toast.youtubePlaying"));
+}
+
+function stopYouTube() {
+  if (ytFrame) { ytFrame.remove(); ytFrame = null; }
+}
 
 function musicIsPlaying() { return activeScene !== null; }
 function musicCurrent() { return activeScene; }
@@ -1691,12 +1819,20 @@ function musicCurrent() { return activeScene; }
 function musicStop() {
   if (activeEngine === "stream" && streamAudio) streamAudio.pause();
   if (activeEngine === "synth") Soundscape.stop();
+  if (activeEngine === "youtube") stopYouTube();
   activeScene = null; activeEngine = null;
+}
+
+// Return the custom YouTube link set for a scene, parsed, or null.
+function sceneYouTube(scene) {
+  return parseYouTube(settings.soundscapeUrls && settings.soundscapeUrls[scene]);
 }
 
 function musicPlay(scene) {
   musicStop();
   activeScene = scene;
+  const yt = sceneYouTube(scene);
+  if (yt) { startYouTube(scene, yt); return; }
   if (STREAM_SCENES[scene]) { streamStationIdx = 0; startStream(scene); }
   else { activeEngine = "synth"; Soundscape.play(scene); }
 }
@@ -1759,11 +1895,14 @@ function buildMusicWidget() {
     const label = t(`scene.${s.key}`);
     chip.type = "button"; chip.className = "mw-chip"; chip.dataset.scene = s.key;
     chip.setAttribute("aria-label", t("scene.play", { name: label }));
-    chip.innerHTML = `<span class="mw-chip-label">${label}</span>`;
+    chip.innerHTML = `<span class="mw-chip-label">${label}</span><span class="mw-chip-badge" aria-hidden="true">▸</span>`;
     chip.addEventListener("click", () => {
       musicScene = s.key;
       if (musicCurrent() === s.key) {
-        if (STREAM_SCENES[s.key]) musicCycleStation(s.key); else musicStop();
+        // A custom YouTube scene has no stations to cycle — a repeat click just stops it.
+        if (activeEngine === "youtube") musicStop();
+        else if (STREAM_SCENES[s.key] && !sceneYouTube(s.key)) musicCycleStation(s.key);
+        else musicStop();
       } else {
         musicPlay(s.key);
       }
@@ -1789,6 +1928,9 @@ function syncMusicWidget(root) {
     const on = c.dataset.scene === playingName;
     c.classList.toggle("active", on);
     c.setAttribute("aria-pressed", on ? "true" : "false");
+    const custom = !!sceneYouTube(c.dataset.scene);
+    c.classList.toggle("mw-chip--custom", custom);
+    c.title = custom ? t("scene.customTitle") : "";
   });
 }
 
@@ -2823,6 +2965,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     settings = { ...DEFAULT_SETTINGS, ...changes.settings.newValue };
     applyTheme();
     if (settings.language !== prevLang) applyLanguage(); else renderTimer();
+    refreshMusicUI();
   }
   if (changes.slackCounts) renderSlack(changes.slackCounts.newValue);
   if (changes.slack) { slackCfg = changes.slack.newValue || null; }
